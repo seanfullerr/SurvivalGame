@@ -1,5 +1,6 @@
 -- HUD/CoinHUD: Coin display positioned left of HP bar + earn animations
 -- Shows real-time coin count with flash + floating "+X" popup on earn.
+-- Also handles pickup VFX for collectible map coins.
 
 local ctx -- set via init()
 
@@ -98,6 +99,46 @@ function M.init(context)
             TextStrokeTransparency = 1,
         }):Play()
         ctx.Debris:AddItem(popup, 1.2)
+    end)
+
+    -- Map coin pickup VFX: gold particle burst at collection point
+    ctx.GameEvents:WaitForChild("CoinPickup").OnClientEvent:Connect(function(pos, collectorId)
+        local vfxPart = Instance.new("Part")
+        vfxPart.Size = Vector3.new(1, 1, 1)
+        vfxPart.Position = pos
+        vfxPart.Anchored = true
+        vfxPart.CanCollide = false
+        vfxPart.Transparency = 1
+        vfxPart.Parent = workspace
+
+        -- Gold sparkle burst
+        local emitter = Instance.new("ParticleEmitter")
+        emitter.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 220, 50)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 180, 30)),
+        })
+        emitter.Size = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 1.0),
+            NumberSequenceKeypoint.new(1, 0),
+        })
+        emitter.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0),
+            NumberSequenceKeypoint.new(0.7, 0.3),
+            NumberSequenceKeypoint.new(1, 1),
+        })
+        emitter.Lifetime = NumberRange.new(0.4, 0.8)
+        emitter.Speed = NumberRange.new(8, 16)
+        emitter.SpreadAngle = Vector2.new(360, 360)
+        emitter.Rate = 0  -- burst only
+        emitter.LightEmission = 1
+        emitter.LightInfluence = 0.2
+        emitter.Parent = vfxPart
+
+        -- Emit burst
+        emitter:Emit(15)
+
+        -- Cleanup after particles fade
+        ctx.Debris:AddItem(vfxPart, 1.5)
     end)
 end
 

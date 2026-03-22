@@ -47,6 +47,13 @@ return {
     MIN_PLAYERS = 1,           -- minimum players required to start (1 = solo/Studio-test friendly)
     LOBBY_COUNTDOWN = 5,       -- lobby countdown seconds before game drops players in
 
+    -- COLLECTIBLE MAP COINS
+    COIN_SPAWN_COUNT = 15,     -- number of coins spawned on the arena per game
+    COIN_REWARD = 2,           -- coins earned per pickup
+    COIN_RESPAWN_TIME = 10,    -- seconds before a collected coin respawns (0 = no respawn)
+    COIN_SPIN_SPEED = 2,       -- rotations per second
+    COIN_BOB_HEIGHT = 0.5,     -- vertical bob amplitude in studs
+
     -- BOMBS
     BOMB_INTERVAL_BASE = 1.2,
     BOMB_INTERVAL_MIN = 0.15,

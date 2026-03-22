@@ -1,5 +1,6 @@
 -- Handles: coin earning per round, DataStore persistence, leaderstats display
 -- Coins: 5 per round survived, 50 bonus for full survive (all 7 rounds)
+-- Also handles map coin pickups via AwardCoinPickup BindableEvent
 
 local Players = game:GetService("Players")
 local DataStoreService = game:GetService("DataStoreService")
@@ -160,4 +161,11 @@ coinBind.Event:Connect(function(roundNumber, survivors, isVictory)
     end
 end)
 
-print("[CoinManager v1] Ready — coins, DataStore, leaderstats!")
+---------- MAP COIN PICKUPS (from CoinSpawner) ----------
+local pickupBind = binds:WaitForChild("AwardCoinPickup")
+pickupBind.Event:Connect(function(player, amount, reason)
+    if not player or not player.Parent then return end
+    awardCoins(player, amount, reason or "Coin Pickup")
+end)
+
+print("[CoinManager v2] Ready — coins, DataStore, leaderstats, map pickups!")
