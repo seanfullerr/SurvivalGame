@@ -17,6 +17,7 @@ if not RS:FindFirstChild("GameEvents") then
         "BombLanded",
         "LeaderboardUpdate",
         "CoinUpdate",
+        "CoinPickup",
         "LavaContact",
         "MissileLockOn",
         "MissileUpdate",
@@ -52,6 +53,9 @@ binds.Name = "Binds"
 -- StartBombs     : RoundManager -> BombSystem   (difficulty, hotZone, destroyChance, roundNum)
 -- StopBombs      : RoundManager -> BombSystem
 -- AwardRoundCoins: RoundManager -> CoinManager  (roundNum, survivors, isVictory)
+-- SpawnMapCoins  : RoundManager -> CoinSpawner  (spawn collectible coins on arena)
+-- CleanupMapCoins: RoundManager -> CoinSpawner  (remove all map coins)
+-- AwardCoinPickup: CoinSpawner  -> CoinManager  (player, amount, reason)
 local bindableEvents = {
     "DamagePlayer",
     "ResetPlayers",
@@ -61,6 +65,9 @@ local bindableEvents = {
     "StartBombs",
     "StopBombs",
     "AwardRoundCoins",
+    "SpawnMapCoins",
+    "CleanupMapCoins",
+    "AwardCoinPickup",
 }
 
 for _, name in ipairs(bindableEvents) do

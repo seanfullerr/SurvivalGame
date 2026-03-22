@@ -325,6 +325,7 @@ while true do
 
     -- GO!
     GameEvents.RoundUpdate:FireAllClients("countdown_go", 0, 0, 1)
+    binds.SpawnMapCoins:Fire()  -- Spawn collectible coins on the arena
     task.wait(0.5)
 
     local gameOver = false
@@ -383,6 +384,7 @@ while true do
             end
             setLobbySpawns(true)
             clearHotZone()
+            binds.CleanupMapCoins:Fire()  -- Remove collectible coins
             GameEvents.RoundUpdate:FireAllClients("return_to_lobby")
             task.wait(0.5)
             binds.ResetPlayers:Fire()
@@ -405,6 +407,7 @@ while true do
                 task.wait(3)
                 setLobbySpawns(true)
                 clearHotZone()
+                binds.CleanupMapCoins:Fire()  -- Remove collectible coins
                 GameEvents.RoundUpdate:FireAllClients("return_to_lobby")
                 task.wait(0.5)
                 binds.ResetPlayers:Fire()

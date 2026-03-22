@@ -1,4 +1,4 @@
--- SoundManager v4: Fixed audio IDs, removed jingles
+-- SoundManager v5: Added CoinPickup sound
 local SoundManager = {}
 
 local SOUNDS = {
@@ -30,6 +30,9 @@ local SOUNDS = {
     LavaSizzle      = "rbxassetid://31758982",   -- Contact sizzle (same asset, different properties)
     RoundClear      = "rbxassetid://135165335432475", -- Round survived chime
     LandThud        = "rbxassetid://74054153559436",  -- Landing thud
+
+    -- Collectible coins
+    CoinPickup      = "rbxassetid://135165335432475", -- Coin pickup chime
 }
 
 -- Play a sound at a specific position in workspace (3D positional audio)
