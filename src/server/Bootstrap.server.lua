@@ -17,7 +17,6 @@ if not RS:FindFirstChild("GameEvents") then
         "BombLanded",
         "LeaderboardUpdate",
         "CoinUpdate",
-        "CoinPickup",
         "LavaContact",
         "MissileLockOn",
         "MissileUpdate",
@@ -45,17 +44,15 @@ local binds = Instance.new("Folder")
 binds.Name = "Binds"
 
 -- BindableEvents -----------------------------------------------------------
--- DamagePlayer   : BombSystem -> PlayerManager  (player, dmg, bombType)
--- ResetPlayers   : RoundManager -> PlayerManager
--- StartGame      : RoundManager -> PlayerManager
--- ScatterPlayers : RoundManager -> PlayerManager
--- HealPlayers    : RoundManager -> PlayerManager (healPct)
--- StartBombs     : RoundManager -> BombSystem   (difficulty, hotZone, destroyChance, roundNum)
--- StopBombs      : RoundManager -> BombSystem
--- AwardRoundCoins: RoundManager -> CoinManager  (roundNum, survivors, isVictory)
--- SpawnMapCoins  : RoundManager -> CoinSpawner  (spawn collectible coins on arena)
--- CleanupMapCoins: RoundManager -> CoinSpawner  (remove all map coins)
--- AwardCoinPickup: CoinSpawner  -> CoinManager  (player, amount, reason)
+-- DamagePlayer    : BombSystem -> PlayerManager  (player, dmg, bombType)
+-- ResetPlayers    : RoundManager -> PlayerManager
+-- StartGame       : RoundManager -> PlayerManager
+-- ScatterPlayers  : RoundManager -> PlayerManager
+-- HealPlayers     : RoundManager -> PlayerManager (healPct)
+-- StartBombs      : RoundManager -> BombSystem   (difficulty, hotZone, destroyChance, roundNum)
+-- StopBombs       : RoundManager -> BombSystem
+-- AwardRoundCoins : RoundManager -> CoinManager  (roundNum, survivors, isVictory)
+-- AwardCoinPickup : CoinSpawner -> CoinManager   (player, amount, reason)
 local bindableEvents = {
     "DamagePlayer",
     "ResetPlayers",
@@ -65,8 +62,6 @@ local bindableEvents = {
     "StartBombs",
     "StopBombs",
     "AwardRoundCoins",
-    "SpawnMapCoins",
-    "CleanupMapCoins",
     "AwardCoinPickup",
 }
 

@@ -1,227 +1,370 @@
--- CoinSpawner v1: Physical collectible coins on the arena map
--- Server-authoritative: spawning, collision detection, validation, reward triggering.
--- Does NOT directly modify player data — fires AwardCoinPickup for CoinManager.
+-- CoinSpawner v1: Procedural coin spawning with collection, respawn, and polish
+-- Spawns coins on valid map tiles (mid/high tiers, avoids lava)
+-- Server-authoritative .Touched collection with debounce + collected flag
+-- Rewards routed via CoinManager using AwardCoinPickup BindableEvent
 
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local Debris = game:GetService("Debris")
 
 local Config = require(RS:WaitForChild("GameConfig"))
 local MapManager = require(RS:WaitForChild("MapManager"))
-local SFX = require(RS:WaitForChild("SoundManager"))
 local GameEvents = RS:WaitForChild("GameEvents")
 local binds = RS:WaitForChild("Binds")
 
-local activeCoins = {}      -- id -> {part, collected, spawnPos, baseY}
+---------- CONFIGURATION (from GameConfig, with fallbacks) ----------
+local COIN_COUNT = Config.COIN_COUNT or 20
+local COIN_RESPAWN_TIME = Config.COIN_RESPAWN_TIME or 12
+local COIN_RESPAWN_JITTER = Config.COIN_RESPAWN_JITTER or 3
+local COIN_VALUE = Config.COIN_PICKUP_VALUE or 1
+local CLUSTER_CHANCE = Config.COIN_CLUSTER_CHANCE or 0.15
+local CLUSTER_MIN = 2
+local CLUSTER_MAX = 4
+
+---------- STATE ----------
 local coinFolder = nil
-local spinConn = nil
-local nextId = 0
-local collectCD = {}        -- userId -> last collect tick
+local activeCoins = {}   -- coin Part -> data table
+local heartbeatConn = nil
+local collectionDebounce = {}  -- userId -> tick
 
--- Config values (with defaults)
-local COUNT     = Config.COIN_SPAWN_COUNT or 15
-local REWARD    = Config.COIN_REWARD or 2
-local RESPAWN   = Config.COIN_RESPAWN_TIME or 10
-local SPIN_SPD  = Config.COIN_SPIN_SPEED or 2
-local BOB_AMP   = Config.COIN_BOB_HEIGHT or 0.5
+---------- SPAWN WEIGHTING ----------
+-- Higher weight = more likely. High tier and near-hazard tiles get bonus.
+local function getSpawnWeight(tier, gx, gz)
+    local weight = 1.0
+    if tier == "high" then
+        weight = 1.8   -- exposed to bombs, harder to reach = riskier
+    elseif tier == "low" then
+        weight = 0.4   -- valleys are sheltered, less reward
+    end
 
----------- COIN PART CREATION ----------
-local function makeCoin(pos, id)
+    -- Bonus for tiles near lava (risky but valid)
+    local G, T = Config.GRID, Config.TILE
+    for dx = -2, 2 do
+        for dz = -2, 2 do
+            if not (dx == 0 and dz == 0) then
+                local nx, nz = gx + dx, gz + dz
+                if nx >= 0 and nx < G and nz >= 0 and nz < G then
+                    local wx = (nx - G / 2 + 0.5) * T
+                    local wz = (nz - G / 2 + 0.5) * T
+                    local isLava = MapManager.IsOverLava(wx, wz)
+                    if isLava then
+                        weight = weight * 1.4
+                        -- Only apply once
+                        goto doneNearLava
+                    end
+                end
+            end
+        end
+    end
+    ::doneNearLava::
+
+    return weight
+end
+
+---------- VALID SPAWN POSITIONS ----------
+local function getValidSpawnPositions()
+    local positions = {}
+    local tierMap = MapManager.GetTierMap()
+    if not tierMap then return positions end
+
+    local G, T = Config.GRID, Config.TILE
+    for gx = 1, G - 2 do
+        for gz = 1, G - 2 do
+            local tier = tierMap[gx] and tierMap[gx][gz]
+            if tier and tier ~= "low" then
+                local worldX = (gx - G / 2 + 0.5) * T
+                local worldZ = (gz - G / 2 + 0.5) * T
+                local isLava = MapManager.IsOverLava(worldX, worldZ)
+                if not isLava then
+                    local surfaceY = MapManager.GetSurfaceY(worldX, worldZ)
+                    table.insert(positions, {
+                        worldX = worldX,
+                        worldZ = worldZ,
+                        surfaceY = surfaceY,
+                        weight = getSpawnWeight(tier, gx, gz),
+                        gx = gx,
+                        gz = gz,
+                    })
+                end
+            end
+        end
+    end
+    return positions
+end
+
+---------- WEIGHTED RANDOM SELECTION ----------
+local function weightedSelect(positions, count)
+    local selected = {}
+    local remaining = {}
+    for i, p in ipairs(positions) do
+        table.insert(remaining, { idx = i, pos = p, weight = p.weight })
+    end
+
+    for _ = 1, math.min(count, #remaining) do
+        local totalWeight = 0
+        for _, r in ipairs(remaining) do totalWeight = totalWeight + r.weight end
+        if totalWeight <= 0 then break end
+
+        local roll = math.random() * totalWeight
+        local cumulative = 0
+        for j, r in ipairs(remaining) do
+            cumulative = cumulative + r.weight
+            if roll <= cumulative then
+                table.insert(selected, r.pos)
+                table.remove(remaining, j)
+                break
+            end
+        end
+    end
+    return selected
+end
+
+---------- CREATE COIN VISUAL ----------
+local function createCoin(worldX, surfaceY, worldZ)
     local coin = Instance.new("Part")
-    coin.Name = "MapCoin_" .. id
+    coin.Name = "PickupCoin"
     coin.Shape = Enum.PartType.Cylinder
-    coin.Size = Vector3.new(0.4, 2.5, 2.5)
-    coin.CFrame = CFrame.new(pos) * CFrame.Angles(0, 0, math.rad(90))
+    coin.Size = Vector3.new(0.4, 2.2, 2.2)
+    coin.CFrame = CFrame.new(worldX, surfaceY + 2.5, worldZ) * CFrame.Angles(0, 0, math.rad(90))
     coin.Anchored = true
     coin.CanCollide = false
     coin.Material = Enum.Material.Neon
-    coin.Color = Color3.fromRGB(255, 200, 50)
-    coin.Parent = coinFolder
+    coin.Color = Color3.fromRGB(255, 210, 50)
 
-    -- Gold glow
+    -- Glow
     local light = Instance.new("PointLight")
-    light.Color = Color3.fromRGB(255, 200, 50)
-    light.Brightness = 1.0
-    light.Range = 14
+    light.Color = Color3.fromRGB(255, 220, 80)
+    light.Brightness = 0.8
+    light.Range = 12
     light.Parent = coin
 
-    -- Billboard "$" indicator
-    local bb = Instance.new("BillboardGui")
-    bb.Size = UDim2.new(0, 28, 0, 28)
-    bb.StudsOffset = Vector3.new(0, 2.5, 0)
-    bb.AlwaysOnTop = false
-    bb.Parent = coin
+    -- "$" billboard
+    local bbg = Instance.new("BillboardGui")
+    bbg.Size = UDim2.new(0, 40, 0, 40)
+    bbg.StudsOffset = Vector3.new(0, 0, 0)
+    bbg.AlwaysOnTop = false
+    bbg.Parent = coin
 
-    local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(1, 0, 1, 0)
-    lbl.BackgroundTransparency = 1
-    lbl.Font = Enum.Font.GothamBold
-    lbl.TextSize = 18
-    lbl.TextColor3 = Color3.fromRGB(255, 220, 50)
-    lbl.TextStrokeTransparency = 0.3
-    lbl.TextStrokeColor3 = Color3.fromRGB(100, 70, 0)
-    lbl.Text = "$"
-    lbl.Parent = bb
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Text = "$"
+    label.TextColor3 = Color3.fromRGB(180, 140, 20)
+    label.TextScaled = true
+    label.Font = Enum.Font.GothamBold
+    label.Parent = bbg
+
+    -- Pickup sound
+    local sound = Instance.new("Sound")
+    sound.SoundId = "rbxassetid://6895079853"
+    sound.Volume = 0.5
+    sound.PlaybackSpeed = 0.9 + math.random() * 0.2
+    sound.RollOffMaxDistance = 40
+    sound.Parent = coin
 
     return coin
 end
 
----------- RANDOM POSITION ON MAP SURFACE ----------
-local function randomCoinPos()
-    local half = MapManager.GetBounds()
-    local inset = 0.15
-    local lo = -half * (1 - inset * 2)
-    local hi =  half * (1 - inset * 2)
+---------- PICKUP BURST VFX ----------
+local function playPickupBurst(position)
+    local anchor = Instance.new("Part")
+    anchor.Size = Vector3.new(0.5, 0.5, 0.5)
+    anchor.Position = position
+    anchor.Anchored = true
+    anchor.CanCollide = false
+    anchor.Transparency = 1
+    anchor.Parent = workspace
 
-    for _ = 1, 25 do
-        local rx = lo + math.random() * (hi - lo)
-        local rz = lo + math.random() * (hi - lo)
+    local emitter = Instance.new("ParticleEmitter")
+    emitter.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 220, 50)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 180, 30)),
+    })
+    emitter.Size = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 1.0),
+        NumberSequenceKeypoint.new(1, 0.1),
+    })
+    emitter.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.2),
+        NumberSequenceKeypoint.new(0.6, 0.5),
+        NumberSequenceKeypoint.new(1, 1),
+    })
+    emitter.Lifetime = NumberRange.new(0.3, 0.6)
+    emitter.Speed = NumberRange.new(8, 16)
+    emitter.SpreadAngle = Vector2.new(360, 360)
+    emitter.Rate = 0
+    emitter.LightEmission = 0.8
+    emitter.Parent = anchor
 
-        -- Skip lava cells
-        if MapManager.IsOverLava(rx, rz) then continue end
-
-        -- Prefer mid/high tiers (avoid valleys near lava)
-        local tier = MapManager.GetTierAt(rx, rz)
-        if tier == "low" then continue end
-
-        -- Need a valid surface
-        local surfY = MapManager.GetSurfaceY(rx, rz)
-        if not surfY or surfY < -20 then continue end
-
-        -- Min spacing between coins (15 studs)
-        local tooClose = false
-        for _, d in pairs(activeCoins) do
-            if d.part and d.part.Parent and not d.collected then
-                local dx = rx - d.spawnPos.X
-                local dz = rz - d.spawnPos.Z
-                if dx * dx + dz * dz < 225 then tooClose = true; break end
-            end
-        end
-        if tooClose then continue end
-
-        return Vector3.new(rx, surfY + 2.5, rz)
-    end
-    return nil
+    emitter:Emit(12)
+    Debris:AddItem(anchor, 1.0)
 end
 
----------- COLLECTION LOGIC ----------
-local function onTouch(id, hit)
-    local d = activeCoins[id]
-    if not d or d.collected then return end
+---------- COLLECTION HANDLER ----------
+local function onCoinTouched(coin, hit)
+    local data = activeCoins[coin]
+    if not data or data.collected then return end
 
-    local char = hit.Parent
-    if not char then return end
-    local player = Players:GetPlayerFromCharacter(char)
+    local character = hit.Parent
+    if not character then return end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid or humanoid.Health <= 0 then return end
+    local player = Players:GetPlayerFromCharacter(character)
     if not player then return end
 
-    -- Per-player debounce (0.3s)
+    -- Per-player debounce (0.15s) to prevent double-collection at high velocity
+    local userId = player.UserId
     local now = tick()
-    if collectCD[player.UserId] and now - collectCD[player.UserId] < 0.3 then return end
-    collectCD[player.UserId] = now
+    if collectionDebounce[userId] and (now - collectionDebounce[userId]) < 0.15 then return end
+    collectionDebounce[userId] = now
 
-    -- Mark collected immediately (prevents double-collect)
-    d.collected = true
+    -- Mark collected (server-authoritative, prevents any race)
+    data.collected = true
 
-    -- Award via CoinManager (keeps DataStore + leaderstats in sync)
+    -- Sound
+    local snd = coin:FindFirstChildOfClass("Sound")
+    if snd then snd:Play() end
+
+    -- Burst VFX
+    playPickupBurst(coin.Position)
+
+    -- Award coins via BindableEvent -> CoinManager
     local awardBind = binds:FindFirstChild("AwardCoinPickup")
     if awardBind then
-        awardBind:Fire(player, REWARD, "Coin Pickup!")
+        awardBind:Fire(player, COIN_VALUE, "Coin Pickup")
     end
 
-    -- Notify all clients for pickup VFX
-    local pickupEvent = GameEvents:FindFirstChild("CoinPickup")
-    if pickupEvent then
-        pickupEvent:FireAllClients(d.spawnPos, player.UserId)
-    end
+    -- Notify client HUD
+    GameEvents.CoinUpdate:FireClient(player, COIN_VALUE, nil, "Pickup")
 
-    -- Pickup sound (3D positional)
-    SFX.PlayAt("CoinPickup", d.spawnPos, {Volume = 0.6, MaxDistance = 60})
+    -- Hide coin
+    coin.Transparency = 1
+    local bbg = coin:FindFirstChildOfClass("BillboardGui")
+    if bbg then bbg.Enabled = false end
+    local light = coin:FindFirstChildOfClass("PointLight")
+    if light then light.Enabled = false end
 
-    -- Destroy the coin part
-    if d.part and d.part.Parent then d.part:Destroy() end
-
-    -- Respawn after delay
-    if RESPAWN > 0 then
-        task.delay(RESPAWN, function()
-            if not coinFolder or not coinFolder.Parent then return end
-            spawnOne()
-        end)
-    end
+    -- Schedule respawn with jitter (±COIN_RESPAWN_JITTER seconds)
+    local jitter = (math.random() * 2 - 1) * COIN_RESPAWN_JITTER
+    local respawnDelay = math.max(COIN_RESPAWN_TIME + jitter, 3)
+    task.delay(respawnDelay, function()
+        if not coin.Parent or not coinFolder or not coinFolder.Parent then return end
+        data.collected = false
+        coin.Transparency = 0
+        if bbg then bbg.Enabled = true end
+        if light then light.Enabled = true end
+        -- Re-randomize animation params for variety on respawn
+        data.spinSpeed = 1.5 + math.random() * 1.0
+        data.bobAmp = 0.3 + math.random() * 0.2
+        data.bobOffset = math.random() * math.pi * 2
+    end)
 end
 
----------- SPAWN ----------
-function spawnOne()
-    local pos = randomCoinPos()
-    if not pos then return end
-
-    nextId = nextId + 1
-    local id = nextId
-    local part = makeCoin(pos, id)
-
-    activeCoins[id] = {
-        part = part,
-        collected = false,
-        spawnPos = pos,
-        baseY = pos.Y,
-    }
-
-    part.Touched:Connect(function(hit) onTouch(id, hit) end)
-end
-
-local function spawnAll()
-    for _ = 1, COUNT do spawnOne() end
-    print("[CoinSpawner] Spawned " .. COUNT .. " map coins")
-end
-
----------- SPIN + BOB ANIMATION (single Heartbeat for all coins) ----------
-local function startAnim()
-    if spinConn then spinConn:Disconnect() end
-    spinConn = RunService.Heartbeat:Connect(function()
+---------- SPIN + BOB ANIMATION (single Heartbeat loop) ----------
+local function startAnimation()
+    if heartbeatConn then heartbeatConn:Disconnect() end
+    heartbeatConn = RunService.Heartbeat:Connect(function()
         local t = tick()
-        for _, d in pairs(activeCoins) do
-            if d.part and d.part.Parent and not d.collected then
-                local angle = t * SPIN_SPD * math.pi * 2
-                local bob = math.sin(t * 2) * BOB_AMP
-                d.part.CFrame = CFrame.new(d.spawnPos.X, d.baseY + bob, d.spawnPos.Z)
+        for coin, data in pairs(activeCoins) do
+            if coin.Parent and not data.collected then
+                local angle = t * (data.spinSpeed or 2.0)
+                local bob = math.sin(t * 2 + (data.bobOffset or 0)) * (data.bobAmp or 0.35)
+                coin.CFrame = CFrame.new(data.worldX, data.baseY + bob, data.worldZ)
                     * CFrame.Angles(0, angle, math.rad(90))
             end
         end
     end)
 end
 
-local function stopAnim()
-    if spinConn then spinConn:Disconnect(); spinConn = nil end
-end
-
----------- CLEANUP ----------
-local function cleanup()
-    stopAnim()
-    for _, d in pairs(activeCoins) do
-        if d.part and d.part.Parent then d.part:Destroy() end
-    end
+---------- SPAWN COINS ON MAP ----------
+local function spawnCoins()
+    -- Clean up previous round
+    if coinFolder then coinFolder:Destroy() end
     activeCoins = {}
-    collectCD = {}
-    if coinFolder and coinFolder.Parent then coinFolder:Destroy() end
-    coinFolder = nil
+    collectionDebounce = {}
+    if heartbeatConn then heartbeatConn:Disconnect(); heartbeatConn = nil end
+
+    coinFolder = Instance.new("Folder")
+    coinFolder.Name = "PickupCoins"
+    coinFolder.Parent = workspace
+
+    local positions = getValidSpawnPositions()
+    if #positions == 0 then
+        warn("[CoinSpawner] No valid spawn positions found")
+        return
+    end
+
+    -- Select base spawn points with weighted distribution
+    local baseSpawns = weightedSelect(positions, COIN_COUNT)
+    local spawnPoints = {}
+
+    for _, pos in ipairs(baseSpawns) do
+        table.insert(spawnPoints, pos)
+
+        -- Cluster chance: spawn extra coins nearby (10-20% of the time)
+        if math.random() < CLUSTER_CHANCE then
+            local clusterSize = math.random(CLUSTER_MIN - 1, CLUSTER_MAX - 1)
+            for _ = 1, clusterSize do
+                local offsetX = math.random(-2, 2) * Config.TILE
+                local offsetZ = math.random(-2, 2) * Config.TILE
+                local cx = pos.worldX + offsetX
+                local cz = pos.worldZ + offsetZ
+                local isLava = MapManager.IsOverLava(cx, cz)
+                if not isLava then
+                    local sy = MapManager.GetSurfaceY(cx, cz)
+                    if sy and sy > Config.TIER_LOW_Y then
+                        table.insert(spawnPoints, {
+                            worldX = cx, worldZ = cz, surfaceY = sy,
+                            gx = pos.gx, gz = pos.gz,
+                        })
+                    end
+                end
+            end
+        end
+    end
+
+    -- Create coin instances
+    for _, pos in ipairs(spawnPoints) do
+        local coin = createCoin(pos.worldX, pos.surfaceY, pos.worldZ)
+        coin.Parent = coinFolder
+
+        -- Per-coin animation variation for natural feel
+        activeCoins[coin] = {
+            collected = false,
+            gx = pos.gx,
+            gz = pos.gz,
+            worldX = pos.worldX,
+            worldZ = pos.worldZ,
+            baseY = pos.surfaceY + 2.5,
+            spinSpeed = 1.5 + math.random() * 1.0,
+            bobAmp = 0.3 + math.random() * 0.2,
+            bobOffset = math.random() * math.pi * 2,
+        }
+
+        coin.Touched:Connect(function(hit)
+            onCoinTouched(coin, hit)
+        end)
+    end
+
+    startAnimation()
+    print("[CoinSpawner] Spawned " .. #spawnPoints .. " coins (" .. #baseSpawns .. " base + clusters)")
 end
 
----------- BINDABLE EVENT HOOKS ----------
-binds:WaitForChild("SpawnMapCoins").Event:Connect(function()
-    cleanup()
-    coinFolder = Instance.new("Folder")
-    coinFolder.Name = "MapCoins"
-    coinFolder.Parent = workspace
-    spawnAll()
-    startAnim()
+---------- WATCH FOR MAP REBUILDS ----------
+workspace.ChildAdded:Connect(function(child)
+    if child.Name == "Map" then
+        task.delay(1.0, function()
+            spawnCoins()
+        end)
+    end
 end)
 
-binds:WaitForChild("CleanupMapCoins").Event:Connect(function()
-    cleanup()
-end)
+-- If map already exists at load time
+if workspace:FindFirstChild("Map") then
+    task.delay(1.0, function()
+        spawnCoins()
+    end)
+end
 
--- Cleanup debounce on player leave
-Players.PlayerRemoving:Connect(function(p)
-    collectCD[p.UserId] = nil
-end)
-
-print("[CoinSpawner v1] Ready — collectible map coins!")
+print("[CoinSpawner v1] Ready — procedural coins with weighting, clusters, jitter")

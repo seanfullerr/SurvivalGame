@@ -1,4 +1,4 @@
--- GameConfig v3: 200x200 arena, 8-stud tiles, elevation tiers, lava
+-- GameConfig v4: 200x200 arena, 8-stud tiles, elevation tiers, lava, coin pickups
 return {
     -- MAP GRID
     GRID = 25,
@@ -47,13 +47,6 @@ return {
     MIN_PLAYERS = 1,           -- minimum players required to start (1 = solo/Studio-test friendly)
     LOBBY_COUNTDOWN = 5,       -- lobby countdown seconds before game drops players in
 
-    -- COLLECTIBLE MAP COINS
-    COIN_SPAWN_COUNT = 15,     -- number of coins spawned on the arena per game
-    COIN_REWARD = 2,           -- coins earned per pickup
-    COIN_RESPAWN_TIME = 10,    -- seconds before a collected coin respawns (0 = no respawn)
-    COIN_SPIN_SPEED = 2,       -- rotations per second
-    COIN_BOB_HEIGHT = 0.5,     -- vertical bob amplitude in studs
-
     -- BOMBS
     BOMB_INTERVAL_BASE = 1.2,
     BOMB_INTERVAL_MIN = 0.15,
@@ -71,4 +64,11 @@ return {
     -- ROTATING HOT ZONE
     HOT_ZONE_MULTIPLIER = 1.4,     -- 40% more bombs in hot zone
     HOT_ZONE_SEQUENCE = {"NW", "NE", "SW", "SE", "CENTER"},
+
+    -- COIN PICKUPS (procedural map coins)
+    COIN_COUNT = 20,               -- base number of coins per map
+    COIN_RESPAWN_TIME = 12,        -- seconds before a collected coin respawns
+    COIN_RESPAWN_JITTER = 3,       -- ± random jitter on respawn (prevents wave patterns)
+    COIN_PICKUP_VALUE = 1,         -- coins awarded per pickup
+    COIN_CLUSTER_CHANCE = 0.15,    -- 15% chance a spawn point becomes a 2-4 coin cluster
 }
