@@ -44,6 +44,8 @@ return {
     ROUND_DURATION = 23,
     MAX_ROUNDS = 7,            -- game ends after 7 rounds (winners survive all)
     INTERMISSION = 6,
+    MIN_PLAYERS = 1,           -- minimum players required to start (1 = solo/Studio-test friendly)
+    LOBBY_COUNTDOWN = 5,       -- lobby countdown seconds before game drops players in
 
     -- BOMBS
     BOMB_INTERVAL_BASE = 1.2,
