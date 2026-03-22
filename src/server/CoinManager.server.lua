@@ -132,10 +132,9 @@ GameEvents.RoundUpdate.OnServerEvent:Connect(function() end)
 -- We need to listen to RoundUpdate on the server... but it's FireAllClients (server→client)
 -- So we need a different approach: hook into the RoundManager's round completion
 
--- Create a bindable for coin awards
-local coinBind = Instance.new("BindableEvent")
-coinBind.Name = "AwardRoundCoins"
-coinBind.Parent = binds
+-- Use the AwardRoundCoins BindableEvent created by Bootstrap
+-- (do NOT create a new one — Bootstrap owns all Binds instances)
+local coinBind = binds:WaitForChild("AwardRoundCoins")
 
 coinBind.Event:Connect(function(roundNumber, survivors, isVictory)
     local COINS_PER_ROUND = 5
