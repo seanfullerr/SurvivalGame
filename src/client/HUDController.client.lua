@@ -1,4 +1,4 @@
--- HUDController v22: Timer hero, death polish, smooth animations
+[OUTPUT] -- HUDController v22: Timer hero, death polish, smooth animations
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
@@ -26,7 +26,7 @@ local function setArenaLighting(roundNum)
     local outdoorR = math.floor(128 - darkCurve * 90)
     local outdoorG = math.floor(128 - darkCurve * 80)
     local outdoorB = math.floor(128 - darkCurve * 95)
-
+    
     TweenService:Create(Lighting, TweenInfo.new(1.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
         Ambient = Color3.fromRGB(ambientR, ambientG, ambientB),
         Brightness = brightness,
@@ -287,7 +287,7 @@ end
 
 local function createRecapPanel(roundsSurvived, survivalTime, deathCause, isNewBest)
     destroyRecapPanel()
-
+    
     local panel = Instance.new("Frame")
     panel.Name = "RecapPanel"
     panel.Size = UDim2.new(0, 320, 0, 260)
@@ -303,7 +303,7 @@ local function createRecapPanel(roundsSurvived, survivalTime, deathCause, isNewB
     panelStroke.Color = Color3.fromRGB(255, 80, 40)
     panelStroke.Thickness = 2
     panelStroke.Parent = panel
-
+    
     -- Title
     local title = Instance.new("TextLabel")
     title.Size = UDim2.new(1, 0, 0, 36)
@@ -315,7 +315,7 @@ local function createRecapPanel(roundsSurvived, survivalTime, deathCause, isNewB
     title.Text = isNewBest and "NEW BEST!" or "GAME OVER"
     title.TextStrokeTransparency = 0.5
     title.Parent = panel
-
+    
     -- Stats container
     local yPos = 50
     local function addStat(label, value, color)
@@ -345,7 +345,7 @@ local function createRecapPanel(roundsSurvived, survivalTime, deathCause, isNewB
         val.Parent = row
         yPos = yPos + 32
     end
-
+    
     addStat("Rounds Survived", tostring(roundsSurvived) .. " / 7", roundsSurvived >= 5 and Color3.fromRGB(80, 255, 120) or Color3.fromRGB(255, 255, 255))
     addStat("Survival Time", formatTime(survivalTime or 0))
     addStat("Damage Taken", tostring(math.floor(totalDamageTaken)), totalDamageTaken > 60 and Color3.fromRGB(255, 100, 100) or Color3.fromRGB(255, 255, 255))
@@ -354,7 +354,7 @@ local function createRecapPanel(roundsSurvived, survivalTime, deathCause, isNewB
     if deathCause then
         addStat("Killed By", tostring(deathCause), Color3.fromRGB(255, 80, 60))
     end
-
+    
     -- Slide-in animation
     panel.Position = UDim2.new(0.5, -160, 0.5, 40)
     panel.BackgroundTransparency = 1
@@ -371,7 +371,7 @@ local function createRecapPanel(roundsSurvived, survivalTime, deathCause, isNewB
             }):Play()
         end
     end
-
+    
     recapPanel = panel
 end
 
@@ -445,16 +445,25 @@ local milestones = {
     {round = 6, text = "ALMOST THERE!", color = Color3.fromRGB(255, 200, 50)},
 }
 
+local _milestoneVersion = 0
 local function showMilestone(text, color)
+    _milestoneVersion = _milestoneVersion + 1
+    local thisVersion = _milestoneVersion
     milestoneLabel.Text = text; milestoneLabel.TextColor3 = color
     milestoneLabel.TextTransparency = 1
     milestoneLabel.Position = UDim2.new(0.5, 0, 0.28, 0)
     TweenService:Create(milestoneLabel, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
         {TextTransparency = 0, Position = UDim2.new(0.5, 0, 0.25, 0)}):Play()
     task.delay(1.8, function()
+        if _milestoneVersion ~= thisVersion then return end -- stale, skip fade-out
         TweenService:Create(milestoneLabel, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
             {TextTransparency = 1, Position = UDim2.new(0.5, 0, 0.22, 0)}):Play()
     end)
+end
+
+local function clearMilestone()
+    _milestoneVersion = _milestoneVersion + 1
+    milestoneLabel.TextTransparency = 1
 end
 
 ---------- COUNTDOWN ANIMATION ----------
@@ -627,7 +636,7 @@ local function startSpectating()
                 _specLerpTarget = specTarget
                 camera.CameraSubject = specTarget.Character:FindFirstChild("Humanoid")
             end
-
+            
             -- S3: Update spectate info with live round data
             if _spectatingCompact then
                 local sub = deathScreen:FindFirstChild("Sub")
@@ -884,19 +893,19 @@ local function connectMovementFeedback(char)
     local hum = char:WaitForChild("Humanoid", 5)
     local hrp = char:WaitForChild("HumanoidRootPart", 5)
     if not hum or not hrp then return end
-
+    
     -- LANDING: camera shake for heavy impacts (dust handled by DoubleJump)
     table.insert(moveConns, hum.StateChanged:Connect(function(_, newState)
         if newState == Enum.HumanoidStateType.Landed then
             local impact = math.abs(lastYVel)
-
+            
             -- HEAVY LANDING (big falls, impact > 35): screen shake + sound
             if impact > 35 then
                 local heavyI = math.clamp(impact / 80, 0.3, 1.5)
                 screenShake(heavyI * 0.5, 0.1)
             end
         end
-
+        
         -- TAKEOFF PUFF: small dust cloud when jumping off ground
         if newState == Enum.HumanoidStateType.Jumping then
             local att = Instance.new("Attachment")
@@ -922,7 +931,7 @@ local function connectMovementFeedback(char)
             Debris:AddItem(att, 0.4)
         end
     end))
-
+    
     -- Track Y velocity for impact calculation
     velConn = RunService.Heartbeat:Connect(function()
         if hrp and hrp.Parent then lastYVel = hrp.AssemblyLinearVelocity.Y end
@@ -1017,24 +1026,24 @@ end
 local function roundTransitionPunch(roundNum)
     -- Quick white-gold flash that scales with round danger
     local intensity = math.clamp(roundNum / MAX_ROUNDS, 0.2, 1.0)
-
+    
     -- Screen flash: gold tint, stronger each round
     flash.BackgroundColor3 = Color3.fromRGB(255, 240, 180)
     flash.BackgroundTransparency = 0.7 - intensity * 0.25
     TweenService:Create(flash, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
         {BackgroundTransparency = 1}):Play()
-
+    
     -- Status text punches in big then settles
     statusLabel.TextSize = 36
     TweenService:Create(statusLabel, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
         TextSize = 20
     }):Play()
-
+    
     -- Camera micro-punch (subtle, just enough to feel the transition)
     if intensity > 0.4 then
         cameraPunch(intensity * 0.6)
     end
-
+    
     -- TopBar border flash: brief bright edge
     local origBG = topBar.BackgroundTransparency
     topBar.BackgroundTransparency = math.max(0, origBG - 0.3)
@@ -1050,7 +1059,7 @@ GameEvents.PlayerDamaged.OnClientEvent:Connect(function(dmg)
     if dmg == 0 then nearMissCount = nearMissCount + 1; showNearMiss(); if lastExplosionPos then showDirectionalNearMiss(lastExplosionPos) end; return end
     if dmg == -1 then showLastSurvivor(); return end
     if dmg < 0 then showHealFeedback(math.abs(dmg)); return end
-
+    
     totalDamageTaken = totalDamageTaken + dmg
     local intensity = math.clamp(dmg / 25, 0.5, 2.5)
     SFX.PlayUI("Hit", camera, {Volume = 0.4 + intensity*0.2, PlaybackSpeed = 0.8 + math.random()*0.4})
@@ -1073,7 +1082,7 @@ GameEvents.PlayerDied.OnClientEvent:Connect(function(cause)
     stopTimer()
     lastDeathCause = cause or "standard"
     SFX.PlayUI("Death", camera, {Volume = 0.45})
-
+    
     -- === DEATH VFX: particle burst at death position ===
     local char = player.Character
     local deathPos = nil
@@ -1102,7 +1111,7 @@ GameEvents.PlayerDied.OnClientEvent:Connect(function(cause)
             smoke.RotSpeed = NumberRange.new(-100, 100)
             smoke.Rate = 0; smoke.LightEmission = 0; smoke.Parent = att
             smoke:Emit(20)
-
+            
             local sparks = Instance.new("ParticleEmitter")
             sparks.Color = ColorSequence.new(Color3.fromRGB(255, 180, 40), Color3.fromRGB(255, 80, 20))
             sparks.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.6), NumberSequenceKeypoint.new(1, 0)})
@@ -1115,13 +1124,13 @@ GameEvents.PlayerDied.OnClientEvent:Connect(function(cause)
             Debris:AddItem(att, 1.5)
         end
     end
-
+    
     -- White flash then fade to dark red
     flash.BackgroundColor3 = Color3.fromRGB(255, 255, 255); flash.BackgroundTransparency = 0
     TweenService:Create(flash, TweenInfo.new(1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
         {BackgroundTransparency = 1, BackgroundColor3 = Color3.fromRGB(255, 40, 20)}):Play()
     screenShake(4, 0.4)
-
+    
     -- === CAMERA PULL-BACK: zoom out and look down at death spot ===
     if deathPos then
         task.spawn(function()
@@ -1142,7 +1151,7 @@ GameEvents.PlayerDied.OnClientEvent:Connect(function(cause)
             task.wait(0.5)
         end)
     end
-
+    
     -- Death screen with smooth fade
     deathScreen.Visible = true; deathScreen.BackgroundTransparency = 1
     TweenService:Create(deathScreen, TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
@@ -1170,7 +1179,7 @@ GameEvents.PlayerDied.OnClientEvent:Connect(function(cause)
         camera.CameraType = Enum.CameraType.Custom
         startSpectating()
     end)
-
+    
     -- S3: Shrink death screen to compact banner after 2s (free up screen for spectating)
     task.delay(2.0, function()
         if not deathScreen.Visible then return end
@@ -1217,25 +1226,25 @@ GameEvents:WaitForChild("LavaContact").OnClientEvent:Connect(function(isFirstCon
     if not char then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
-
+    
     -- A1: Debounced lava VFX — heavy effects only every 1.5s, light sizzle every tick
     -- Light sizzle every tick (quiet, varied pitch — organic feel without strobe)
     SFX.PlayUI("LavaSizzle", camera, {
         Volume = isFirstContact and 0.5 or 0.2,
         PlaybackSpeed = 1.8 + math.random() * 0.6,
     })
-
+    
     -- Persistent orange vignette while on lava (replaces per-tick flash)
     if lowHPOverlay then
         lowHPOverlay.BackgroundColor3 = Color3.fromRGB(80, 30, 0)
         lowHPOverlay.BackgroundTransparency = 0.85
     end
-
+    
     -- Heavy VFX only on first contact OR every 1.5s (debounced)
     local now = tick()
     if isFirstContact or not _lastLavaHeavyVFX or (now - _lastLavaHeavyVFX) > 1.4 then
         _lastLavaHeavyVFX = now
-
+        
         -- Steam burst at feet
         local att = Instance.new("Attachment")
         att.Position = Vector3.new(0, -2.5, 0)
@@ -1262,13 +1271,13 @@ GameEvents:WaitForChild("LavaContact").OnClientEvent:Connect(function(isFirstCon
         steam.Parent = att
         steam:Emit(isFirstContact and 15 or 8)
         Debris:AddItem(att, 0.8)
-
+        
         -- Orange flash (only on heavy ticks, not every 0.5s)
         flash.BackgroundColor3 = Color3.fromRGB(255, 120, 20)
         flash.BackgroundTransparency = isFirstContact and 0.6 or 0.82
         TweenService:Create(flash, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
             {BackgroundTransparency = 1}):Play()
-
+        
         if isFirstContact then
             tintCharacter(char, Color3.fromRGB(255, 140, 40), 0.3)
             screenShake(0.8, 0.1)
@@ -1308,7 +1317,7 @@ local function createLockOnReticle()
     bb.StudsOffset = Vector3.new(0, 4, 0)
     bb.AlwaysOnTop = true
     bb.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-
+    
     -- Red diamond reticle (diagonal frame)
     local center = Instance.new("Frame")
     center.Name = "Reticle"
@@ -1326,7 +1335,7 @@ local function createLockOnReticle()
     stroke.Color = Color3.fromRGB(255, 200, 50)
     stroke.Thickness = 2
     stroke.Parent = center
-
+    
     -- "LOCKED" text below reticle
     local label = Instance.new("TextLabel")
     label.Size = UDim2.new(1, 0, 0, 20)
@@ -1339,9 +1348,9 @@ local function createLockOnReticle()
     label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
     label.Text = "LOCKED"
     label.Parent = bb
-
+    
     missileReticle = bb
-
+    
     -- Pulse animation on the reticle
     task.spawn(function()
         while missileReticle and missileReticle.Parent do
@@ -1357,7 +1366,7 @@ local function createLockOnReticle()
             task.wait(0.3)
         end
     end)
-
+    
     return bb
 end
 
@@ -1373,22 +1382,22 @@ GameEvents:WaitForChild("MissileLockOn").OnClientEvent:Connect(function(targetNa
     if phase == "lockon_start" then
         missileLockOnTarget = targetName
         local isMe = (player.Name == targetName)
-
+        
         -- Find target player
         local targetPlayer = Players:FindFirstChild(targetName)
         local targetChar = targetPlayer and targetPlayer.Character
-
+        
         if targetChar then
             -- Reticle above target's head
             local bb = createLockOnReticle()
             bb.Adornee = targetChar:FindFirstChild("Head") or targetChar:FindFirstChild("HumanoidRootPart")
             bb.Parent = targetChar
-
+            
 
         end
-
+        
         missileLockedOn = true
-
+        
         -- If I'm the target: screen warning
         if isMe then
             -- Red pulsing vignette
@@ -1396,17 +1405,17 @@ GameEvents:WaitForChild("MissileLockOn").OnClientEvent:Connect(function(targetNa
             flash.BackgroundTransparency = 0.7
             TweenService:Create(flash, TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, 2, true),
                 {BackgroundTransparency = 0.85}):Play()
-
+            
             -- "MISSILE INCOMING!" milestone
             showMilestone("MISSILE INCOMING!", Color3.fromRGB(255, 80, 30))
-
+            
             -- Camera subtle shake
             screenShake(1.0, 0.3)
         end
-
+        
     elseif phase == "lockon_cancel" or phase == "missile_exploded" then
         cleanupMissileEffects()
-
+        
     elseif phase == "missile_launched" then
         -- Escalate warning for target player
         if player.Name == targetName then
@@ -1427,15 +1436,16 @@ end)
 
 ---------- ROUND UPDATES ----------
 GameEvents.RoundUpdate.OnClientEvent:Connect(function(phase, a, b, diff, survivalTime, aliveCount, hotZoneInfo)
-
+    
     if phase == "player_eliminated" then
         showKillFeed(a, b); return
     end
-
+    
     if phase == "return_to_lobby" then
         cleanupMissileEffects()
         restoreLobbyLighting()
         destroyRecapPanel()
+        clearMilestone()
         TweenService:Create(camera, TweenInfo.new(0.5), {FieldOfView = 70}):Play()
         -- Fade to black before lobby transition
         fadeToBlack(0.6, function()
@@ -1448,14 +1458,14 @@ GameEvents.RoundUpdate.OnClientEvent:Connect(function(phase, a, b, diff, surviva
         end)
         return
     end
-
+    
     if phase == "map_modifier" then
         local modNames = {craters = "CRATERS", elevated_center = "HIGH GROUND", thin_bridges = "BRIDGES"}
         local modName = modNames[a] or a:upper()
         showMilestone("MAP: " .. modName, Color3.fromRGB(200, 200, 255))
         return
     end
-
+    
     if phase == "hot_zone" then
         -- a = zone name ("NW","NE","SW","SE","CENTER"), b = round number
         local zoneNames = {NW="NORTH-WEST", NE="NORTH-EAST", SW="SOUTH-WEST", SE="SOUTH-EAST", CENTER="CENTER"}
@@ -1463,11 +1473,12 @@ GameEvents.RoundUpdate.OnClientEvent:Connect(function(phase, a, b, diff, surviva
         showMilestone("HOT ZONE: " .. zoneName, Color3.fromRGB(255, 140, 50))
         return
     end
-
+        
     if phase == "lobby_wait" then
         cleanupMissileEffects()
         restoreLobbyLighting()
         destroyRecapPanel()
+        clearMilestone()
         stopSpectating(); stopTimer()
         totalDamageTaken = 0; nearMissCount = 0; lastDeathCause = nil
         TweenService:Create(camera, TweenInfo.new(0.5), {FieldOfView = 70}):Play()
@@ -1505,7 +1516,7 @@ GameEvents.RoundUpdate.OnClientEvent:Connect(function(phase, a, b, diff, surviva
         statusLabel.Text = "GET READY!"
         infoLabel.Text = ""
         showCountdownNumber(a)
-
+        
     elseif phase == "drop" then
         stopSpectating()
         inArena = true
@@ -1520,7 +1531,7 @@ GameEvents.RoundUpdate.OnClientEvent:Connect(function(phase, a, b, diff, surviva
         task.delay(0.6, function()
             fadeFromBlack(1.0)
         end)
-
+        
     elseif phase == "countdown_go" then
         countdownLabel.Text = "GO!"
         countdownLabel.TextColor3 = Color3.fromRGB(100, 255, 120)
@@ -1534,7 +1545,7 @@ GameEvents.RoundUpdate.OnClientEvent:Connect(function(phase, a, b, diff, surviva
         infoLabel.Text = "Survive!"
         hpBar.Visible = true; startTimer()
         updateRoundDots(1)
-
+        
     elseif phase == "round_start" then
         currentRound = a; roundsThisSession = a
 
@@ -1545,7 +1556,7 @@ GameEvents.RoundUpdate.OnClientEvent:Connect(function(phase, a, b, diff, surviva
         statusLabel.Text = "ROUND " .. a .. " / " .. MAX_ROUNDS
         infoLabel.Text = ""
         updateRoundDots(a)
-
+        
         -- F2: Round escalation intensity callout (R5+)
         if a >= 7 then
             showMilestone("FINAL STAND", Color3.fromRGB(200, 30, 30))
@@ -1556,7 +1567,7 @@ GameEvents.RoundUpdate.OnClientEvent:Connect(function(phase, a, b, diff, surviva
         elseif a >= 5 then
             showMilestone("INTENSITY RISING", Color3.fromRGB(255, 160, 40))
         end
-
+        
         -- Late-round FOV shift: subtle intensity increase through the camera
         local fovTarget = 70  -- default FOV
         if a >= 7 then fovTarget = 76
@@ -1566,15 +1577,15 @@ GameEvents.RoundUpdate.OnClientEvent:Connect(function(phase, a, b, diff, surviva
         TweenService:Create(camera, TweenInfo.new(1.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
             FieldOfView = fovTarget,
         }):Play()
-
+        
         local lateRound = (a >= 4)
-
+        
         -- === INTER-ROUND COUNTDOWN: big visible number + escalating tick ===
         -- Smaller than game-start (80 vs 140) and amber-toned to feel distinct
         local tickColor = Color3.fromRGB(255, 200, 100)
         if b <= 2 then tickColor = Color3.fromRGB(255, 150, 60) end
         if b == 1 then tickColor = Color3.fromRGB(255, 100, 40) end
-
+        
         countdownLabel.Text = tostring(b)
         countdownLabel.TextColor3 = tickColor
         countdownLabel.TextTransparency = 0
@@ -1585,18 +1596,18 @@ GameEvents.RoundUpdate.OnClientEvent:Connect(function(phase, a, b, diff, surviva
             TweenService:Create(countdownLabel, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
                 {TextTransparency = 0.8, TextSize = 60}):Play()
         end)
-
+        
         -- Tick sound: escalates each second (actually audible)
         local vol = ({[3] = 0.30, [2] = 0.38, [1] = 0.45})[b] or 0.3
         local pitch = ({[3] = 0.9, [2] = 1.0, [1] = 1.15})[b] or 1.0
         SFX.PlayUI("RoundTick", camera, {Volume = vol, PlaybackSpeed = pitch})
-
+        
         if b == 3 then
             setArenaLighting(a)
 
             roundTransitionPunch(a)            statusLabel.TextTransparency = 0.5
             TweenService:Create(statusLabel, TweenInfo.new(0.3), {TextTransparency = 0.15}):Play()
-
+            
             for _, m in ipairs(milestones) do
                 if a == m.round then showMilestone(m.text, m.color); break end
             end
@@ -1606,7 +1617,7 @@ GameEvents.RoundUpdate.OnClientEvent:Connect(function(phase, a, b, diff, surviva
                 showMilestone("DANGER: HIGH", Color3.fromRGB(255, 160, 30))
             end
         end
-
+        
         -- Vignette builds in last 2 seconds
         if b <= 2 then
             screenShake(0.15 + (3 - b) * 0.1, 0.2)
@@ -1616,14 +1627,14 @@ GameEvents.RoundUpdate.OnClientEvent:Connect(function(phase, a, b, diff, surviva
                 TweenService:Create(lowHPOverlay, TweenInfo.new(0.5), {BackgroundTransparency = vigT}):Play()
             end
         end
-
+        
         if b == 1 then
             TweenService:Create(statusLabel, TweenInfo.new(0.3), {
                 TextColor3 = Color3.fromRGB(255, 200, 80)
             }):Play()
         end
-
-        -- Difficulty bar (always)
+        
+        -- Difficulty bar (always)        
     elseif phase == "survive" then
         -- Clear inter-round countdown + tension vignette
         countdownLabel.TextTransparency = 1
@@ -1652,7 +1663,7 @@ GameEvents.RoundUpdate.OnClientEvent:Connect(function(phase, a, b, diff, surviva
             lowHPOverlay.BackgroundColor3 = Color3.fromRGB(30, 0, 0)
             TweenService:Create(lowHPOverlay, TweenInfo.new(0.5), {BackgroundTransparency = vignetteT}):Play()
         end
-
+        
     elseif phase == "round_survived" then
         if lowHPOverlay then lowHPOverlay.BackgroundColor3 = Color3.fromRGB(30, 0, 0) end
         -- Personal best tracking
@@ -1665,7 +1676,7 @@ GameEvents.RoundUpdate.OnClientEvent:Connect(function(phase, a, b, diff, surviva
         _lastLavaHeavyVFX = nil
         -- Timer keeps running (total survival time, not per-round)
         -- (best time tracking removed)
-
+        
         updateRoundDots(b)
         -- === ROUND CLEAR: The dopamine moment ===
         -- 1) Bright chime — pitch rises slightly each round (escalating triumph)
@@ -1675,7 +1686,7 @@ GameEvents.RoundUpdate.OnClientEvent:Connect(function(phase, a, b, diff, surviva
                 PlaybackSpeed = 1.0 + (b - 1) * 0.025,
             })
         end)
-
+        
         -- 2) Status text PUNCHES in: scale up → settle
         statusLabel.Text = "ROUND " .. b .. " / " .. MAX_ROUNDS .. " CLEAR!"
         statusLabel.TextColor3 = Color3.fromRGB(80, 255, 120)
@@ -1689,7 +1700,7 @@ GameEvents.RoundUpdate.OnClientEvent:Connect(function(phase, a, b, diff, surviva
                 TextSize = 28,
             }):Play()
         end)
-
+        
         -- 3) Info line: show survivors + heal info
         local healPct = 30
         infoLabel.Text = a .. " alive | +" .. healPct .. " HP"
@@ -1699,13 +1710,13 @@ GameEvents.RoundUpdate.OnClientEvent:Connect(function(phase, a, b, diff, surviva
                 TextColor3 = Color3.fromRGB(200, 200, 200),
             }):Play()
         end)
-
+        
         -- 4) Healing PULSE: bright green wash across screen (unmissable)
         flash.BackgroundColor3 = Color3.fromRGB(60, 255, 80)
         flash.BackgroundTransparency = 0.55
         TweenService:Create(flash, TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
             {BackgroundTransparency = 1}):Play()
-
+        
         -- 5) Centered floating "+HP" label (screen space, can't miss it)
         local healFloat = Instance.new("TextLabel")
         healFloat.Size = UDim2.new(0, 200, 0, 40)
@@ -1723,7 +1734,7 @@ GameEvents.RoundUpdate.OnClientEvent:Connect(function(phase, a, b, diff, surviva
             TextStrokeTransparency = 1,
         }):Play()
         Debris:AddItem(healFloat, 1.2)
-
+        
         -- 6) HP bar green flash
         if hpBar and hpBar.Visible then
             local fill = hpBar:FindFirstChild("Fill")
@@ -1734,7 +1745,7 @@ GameEvents.RoundUpdate.OnClientEvent:Connect(function(phase, a, b, diff, surviva
             end
             punchHPBar()
         end
-
+        
         -- 7) Confetti burst (kept, slightly boosted)
         local char = player.Character
         if char then
@@ -1755,12 +1766,12 @@ GameEvents.RoundUpdate.OnClientEvent:Connect(function(phase, a, b, diff, surviva
                 confetti:Emit(30); Debris:AddItem(att, 2)
             end
         end
-
+        
     elseif phase == "victory" then
         -- === VICTORY: Players survived all rounds! ===
         stopTimer()
         restoreLobbyLighting()
-
+        
         -- All dots go green
         if roundDotsFrame then
             for i = 1, MAX_ROUNDS do
@@ -1771,7 +1782,7 @@ GameEvents.RoundUpdate.OnClientEvent:Connect(function(phase, a, b, diff, surviva
                 end
             end
         end
-
+        
         -- Big "VICTORY!" text
         countdownLabel.Text = "VICTORY!"
         countdownLabel.TextColor3 = Color3.fromRGB(255, 220, 50)
@@ -1780,7 +1791,7 @@ GameEvents.RoundUpdate.OnClientEvent:Connect(function(phase, a, b, diff, surviva
         TweenService:Create(countdownLabel, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
             TextSize = 120
         }):Play()
-
+        
         -- Victory chime (triumphant, lower pitch for gravitas)
         SFX.PlayUI("RoundClear", camera, {Volume = 0.6, PlaybackSpeed = 0.8})
         task.delay(0.4, function() SFX.PlayUI("RoundClear", camera, {Volume = 0.5, PlaybackSpeed = 1.2}) end)
@@ -1788,19 +1799,19 @@ GameEvents.RoundUpdate.OnClientEvent:Connect(function(phase, a, b, diff, surviva
         statusLabel.TextColor3 = Color3.fromRGB(255, 220, 80)
         infoLabel.Text = a .. " survivors | " .. formatTime(survivalTime or 0)
         infoLabel.TextColor3 = Color3.fromRGB(200, 255, 200)
-
+        
         -- Victory chime
         SFX.PlayUI("RoundClear", camera, {Volume = 0.6, PlaybackSpeed = 0.85})
         task.delay(0.3, function()
             SFX.PlayUI("RoundClear", camera, {Volume = 0.5, PlaybackSpeed = 1.1})
         end)
-
+        
         -- Gold screen flash
         flash.BackgroundColor3 = Color3.fromRGB(255, 220, 50)
         flash.BackgroundTransparency = 0.4
         TweenService:Create(flash, TweenInfo.new(1.0, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
             {BackgroundTransparency = 1}):Play()
-
+        
         -- Confetti burst (bigger than round survived)
         local char = player.Character
         if char then
@@ -1822,14 +1833,15 @@ GameEvents.RoundUpdate.OnClientEvent:Connect(function(phase, a, b, diff, surviva
                 confetti:Emit(50); Debris:AddItem(att, 3)
             end
         end
-
+        
         -- Fade out victory text after 2s
         task.delay(2, function()
             TweenService:Create(countdownLabel, TweenInfo.new(0.8), {TextTransparency = 1}):Play()
         end)
-
+        
     elseif phase == "game_over" then
         stopTimer()
+        clearMilestone()
         -- Update personal best
         if a > bestRound then bestRound = a end
         statusLabel.Text = "GAME OVER!"
@@ -1839,7 +1851,7 @@ GameEvents.RoundUpdate.OnClientEvent:Connect(function(phase, a, b, diff, surviva
         -- Show the recap panel with stats
         local survTime = survivalStart and (tick() - survivalStart) or 0
         createRecapPanel(a, survTime, lastDeathCause, a >= bestRound and a > 0)
-
+ 
         if lowHPOverlay then
             lowHPOverlay.BackgroundColor3 = Color3.fromRGB(180, 0, 0)
             TweenService:Create(lowHPOverlay, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
@@ -1854,3 +1866,5 @@ infoLabel.Text = "Lobby"
 countdownLabel.TextTransparency = 1
 
 print("[HUDController v22] Ready — Tier1 polish, no double-punch, clean resets!")
+
+[OUTPUT] 
