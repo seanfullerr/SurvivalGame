@@ -1,4 +1,4 @@
--- SoundManager v5: Added CoinPickup sound
+-- SoundManager v6: Added StreakUp sound for coin streak feedback
 local SoundManager = {}
 
 local SOUNDS = {
@@ -33,6 +33,7 @@ local SOUNDS = {
 
     -- Collectible coins
     CoinPickup      = "rbxassetid://135165335432475", -- Coin pickup chime
+    StreakUp        = "rbxassetid://135165335432475", -- Streak increment chime (same base, pitch-shifted in code)
 }
 
 -- Play a sound at a specific position in workspace (3D positional audio)

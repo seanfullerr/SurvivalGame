@@ -1,7 +1,8 @@
--- CoinSpawner v1: Procedural coin spawning with collection, respawn, and polish
+-- CoinSpawner v2: Procedural coin spawning with collection, respawn, streaks, and polish
 -- Spawns coins on valid map tiles (mid/high tiers, avoids lava)
 -- Server-authoritative .Touched collection with debounce + collected flag
 -- Rewards routed via CoinManager using AwardCoinPickup BindableEvent
+-- Streak system: consecutive pickups within timeout earn multiplied rewards
 
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
@@ -22,23 +23,58 @@ local CLUSTER_CHANCE = Config.COIN_CLUSTER_CHANCE or 0.15
 local CLUSTER_MIN = 2
 local CLUSTER_MAX = 4
 
+-- Streak config
+local STREAK_TIMEOUT = Config.COIN_STREAK_TIMEOUT or 2.5
+local STREAK_MAX = Config.COIN_STREAK_MAX_MULTIPLIER or 5
+
 ---------- STATE ----------
 local coinFolder = nil
 local activeCoins = {}   -- coin Part -> data table
 local heartbeatConn = nil
 local collectionDebounce = {}  -- userId -> tick
 
+-- Streak state per player: { count = number, lastPickup = number }
+local playerStreaks = {}
+
+---------- STREAK HELPERS ----------
+local function getStreak(userId)
+    if not playerStreaks[userId] then
+        playerStreaks[userId] = { count = 0, lastPickup = 0 }
+    end
+    return playerStreaks[userId]
+end
+
+local function resetStreak(userId)
+    playerStreaks[userId] = { count = 0, lastPickup = 0 }
+end
+
+local function updateStreak(userId)
+    local streak = getStreak(userId)
+    local now = tick()
+    if streak.count > 0 and (now - streak.lastPickup) <= STREAK_TIMEOUT then
+        streak.count = math.min(streak.count + 1, STREAK_MAX)
+    else
+        streak.count = 1
+    end
+    streak.lastPickup = now
+    return streak.count
+end
+
+-- Clean up streak data when player leaves
+Players.PlayerRemoving:Connect(function(player)
+    playerStreaks[player.UserId] = nil
+    collectionDebounce[player.UserId] = nil
+end)
+
 ---------- SPAWN WEIGHTING ----------
--- Higher weight = more likely. High tier and near-hazard tiles get bonus.
 local function getSpawnWeight(tier, gx, gz)
     local weight = 1.0
     if tier == "high" then
-        weight = 1.8   -- exposed to bombs, harder to reach = riskier
+        weight = 1.8
     elseif tier == "low" then
-        weight = 0.4   -- valleys are sheltered, less reward
+        weight = 0.4
     end
 
-    -- Bonus for tiles near lava (risky but valid)
     local G, T = Config.GRID, Config.TILE
     for dx = -2, 2 do
         for dz = -2, 2 do
@@ -50,7 +86,6 @@ local function getSpawnWeight(tier, gx, gz)
                     local isLava = MapManager.IsOverLava(wx, wz)
                     if isLava then
                         weight = weight * 1.4
-                        -- Only apply once
                         goto doneNearLava
                     end
                 end
@@ -132,14 +167,12 @@ local function createCoin(worldX, surfaceY, worldZ)
     coin.Material = Enum.Material.Neon
     coin.Color = Color3.fromRGB(255, 210, 50)
 
-    -- Glow
     local light = Instance.new("PointLight")
     light.Color = Color3.fromRGB(255, 220, 80)
     light.Brightness = 0.8
     light.Range = 12
     light.Parent = coin
 
-    -- "$" billboard
     local bbg = Instance.new("BillboardGui")
     bbg.Size = UDim2.new(0, 40, 0, 40)
     bbg.StudsOffset = Vector3.new(0, 0, 0)
@@ -155,7 +188,6 @@ local function createCoin(worldX, surfaceY, worldZ)
     label.Font = Enum.Font.GothamBold
     label.Parent = bbg
 
-    -- Pickup sound
     local sound = Instance.new("Sound")
     sound.SoundId = "rbxassetid://6895079853"
     sound.Volume = 0.5
@@ -222,9 +254,18 @@ local function onCoinTouched(coin, hit)
     -- Mark collected (server-authoritative, prevents any race)
     data.collected = true
 
+    -- Update streak and calculate multiplied reward
+    local streakCount = updateStreak(userId)
+    local multiplier = streakCount
+    local totalAward = COIN_VALUE * multiplier
+
     -- Sound
     local snd = coin:FindFirstChildOfClass("Sound")
-    if snd then snd:Play() end
+    if snd then
+        -- Pitch up slightly with streak for satisfying audio feedback
+        snd.PlaybackSpeed = 0.9 + math.min(streakCount - 1, 4) * 0.08 + math.random() * 0.1
+        snd:Play()
+    end
 
     -- Burst VFX
     playPickupBurst(coin.Position)
@@ -232,11 +273,20 @@ local function onCoinTouched(coin, hit)
     -- Award coins via BindableEvent -> CoinManager
     local awardBind = binds:FindFirstChild("AwardCoinPickup")
     if awardBind then
-        awardBind:Fire(player, COIN_VALUE, "Coin Pickup")
+        local reason = "Coin Pickup"
+        if streakCount >= 2 then
+            reason = streakCount .. "x Streak Pickup"
+        end
+        awardBind:Fire(player, totalAward, reason)
     end
 
-    -- Notify client HUD
-    GameEvents.CoinUpdate:FireClient(player, COIN_VALUE, nil, "Pickup")
+    -- Notify client HUD of coin earned (amount + total)
+    GameEvents.CoinUpdate:FireClient(player, totalAward, nil, "Pickup")
+
+    -- Notify client of streak state (for streak UI)
+    if streakCount >= 2 then
+        GameEvents.CoinStreak:FireClient(player, streakCount, multiplier)
+    end
 
     -- Hide coin
     coin.Transparency = 1
@@ -245,7 +295,7 @@ local function onCoinTouched(coin, hit)
     local light = coin:FindFirstChildOfClass("PointLight")
     if light then light.Enabled = false end
 
-    -- Schedule respawn with jitter (±COIN_RESPAWN_JITTER seconds)
+    -- Schedule respawn with jitter
     local jitter = (math.random() * 2 - 1) * COIN_RESPAWN_JITTER
     local respawnDelay = math.max(COIN_RESPAWN_TIME + jitter, 3)
     task.delay(respawnDelay, function()
@@ -254,7 +304,6 @@ local function onCoinTouched(coin, hit)
         coin.Transparency = 0
         if bbg then bbg.Enabled = true end
         if light then light.Enabled = true end
-        -- Re-randomize animation params for variety on respawn
         data.spinSpeed = 1.5 + math.random() * 1.0
         data.bobAmp = 0.3 + math.random() * 0.2
         data.bobOffset = math.random() * math.pi * 2
@@ -285,6 +334,11 @@ local function spawnCoins()
     collectionDebounce = {}
     if heartbeatConn then heartbeatConn:Disconnect(); heartbeatConn = nil end
 
+    -- Reset all streaks on map rebuild (new round)
+    for userId, _ in pairs(playerStreaks) do
+        resetStreak(userId)
+    end
+
     coinFolder = Instance.new("Folder")
     coinFolder.Name = "PickupCoins"
     coinFolder.Parent = workspace
@@ -295,14 +349,12 @@ local function spawnCoins()
         return
     end
 
-    -- Select base spawn points with weighted distribution
     local baseSpawns = weightedSelect(positions, COIN_COUNT)
     local spawnPoints = {}
 
     for _, pos in ipairs(baseSpawns) do
         table.insert(spawnPoints, pos)
 
-        -- Cluster chance: spawn extra coins nearby (10-20% of the time)
         if math.random() < CLUSTER_CHANCE then
             local clusterSize = math.random(CLUSTER_MIN - 1, CLUSTER_MAX - 1)
             for _ = 1, clusterSize do
@@ -324,12 +376,10 @@ local function spawnCoins()
         end
     end
 
-    -- Create coin instances
     for _, pos in ipairs(spawnPoints) do
         local coin = createCoin(pos.worldX, pos.surfaceY, pos.worldZ)
         coin.Parent = coinFolder
 
-        -- Per-coin animation variation for natural feel
         activeCoins[coin] = {
             collected = false,
             gx = pos.gx,
@@ -348,7 +398,7 @@ local function spawnCoins()
     end
 
     startAnimation()
-    print("[CoinSpawner] Spawned " .. #spawnPoints .. " coins (" .. #baseSpawns .. " base + clusters)")
+    print("[CoinSpawner v2] Spawned " .. #spawnPoints .. " coins (" .. #baseSpawns .. " base + clusters) — streaks enabled")
 end
 
 ---------- WATCH FOR MAP REBUILDS ----------
@@ -360,11 +410,10 @@ workspace.ChildAdded:Connect(function(child)
     end
 end)
 
--- If map already exists at load time
 if workspace:FindFirstChild("Map") then
     task.delay(1.0, function()
         spawnCoins()
     end)
 end
 
-print("[CoinSpawner v1] Ready — procedural coins with weighting, clusters, jitter")
+print("[CoinSpawner v2] Ready — procedural coins with weighting, clusters, jitter, streaks")
