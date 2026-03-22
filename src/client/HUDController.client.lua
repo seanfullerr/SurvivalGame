@@ -51,6 +51,30 @@ local player = Players.LocalPlayer
 local gui = player:WaitForChild("PlayerGui"):WaitForChild("GameHUD")
 local camera = workspace.CurrentCamera
 
+-- Cache of each body part's TRUE original color (captured before any damage tinting).
+-- Keyed by part instance so we always revert to the real pre-damage color even
+-- after multiple consecutive hits have stacked red on top of red.
+local charOrigColors = {}
+
+local function captureOrigColors(char)
+    if not char then return end
+    charOrigColors = {}
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+            charOrigColors[part] = part.Color
+        end
+    end
+end
+
+-- Capture on every spawn so the cache is always fresh
+player.CharacterAdded:Connect(function(char)
+    -- Defer one frame to let the character finish loading its appearance
+    task.defer(function() captureOrigColors(char) end)
+end)
+if player.Character then
+    task.defer(function() captureOrigColors(player.Character) end)
+end
+
 -- GUI refs (updated for v14 layout)
 local topBar = gui:WaitForChild("TopBar")
 local statusLabel = topBar:WaitForChild("Status")
@@ -734,14 +758,37 @@ local function knockbackTilt(explosionPos)
 end
 
 ---------- HIT VFX ----------
-local function tintCharacter(char, color, duration)
+
+-- Smoothly fade all character parts back to their pre-damage original colors.
+local function resetCharTint(char, tweenTime)
     if not char then return end
+    tweenTime = tweenTime or 0.5
     for _, part in ipairs(char:GetDescendants()) do
         if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-            local orig = part.Color; part.Color = color
+            local origColor = charOrigColors[part]
+            if origColor and part.Parent then
+                TweenService:Create(part,
+                    TweenInfo.new(tweenTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+                    {Color = origColor}):Play()
+            end
+        end
+    end
+end
+
+-- Tint character and revert to TRUE original colors after duration.
+-- Using the charOrigColors cache prevents stacked hits from locking the
+-- character red permanently (the old bug: orig was already red on 2nd hit).
+local function tintCharacter(char, color, duration)
+    if not char then return end
+    -- Lazily capture original colors in case CharacterAdded fired before the cache was ready
+    if not next(charOrigColors) then captureOrigColors(char) end
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+            part.Color = color
+            local origColor = charOrigColors[part] or color
             task.delay(duration, function()
                 if part and part.Parent then
-                    TweenService:Create(part, TweenInfo.new(0.4), {Color = orig}):Play()
+                    TweenService:Create(part, TweenInfo.new(0.4), {Color = origColor}):Play()
                 end
             end)
         end
@@ -821,10 +868,31 @@ end
 
 ---------- HEAL FEEDBACK ----------
 local function showHealFeedback(healAmt)
+    -- Screen flash (green)
     flash.BackgroundColor3 = Color3.fromRGB(80, 255, 80)
     flash.BackgroundTransparency = 0.85
     TweenService:Create(flash, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
         {BackgroundTransparency = 1}):Play()
+
+    -- Character heal glow: brief green flash then fade back to true original colors.
+    -- This also clears any lingering red tint from damage (fixes the visual UX bug).
+    local char = player.Character
+    if char then
+        -- Ensure original colors are captured (safety net)
+        if not next(charOrigColors) then captureOrigColors(char) end
+        -- Flash green for one frame to signal healing
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                part.Color = Color3.fromRGB(100, 255, 130)
+            end
+        end
+        -- Smoothly fade back to original — 0.7 s gives a satisfying "recovery" feel
+        task.delay(0.08, function()
+            resetCharTint(char, 0.7)
+        end)
+    end
+
+    -- Floating "+HP" label
     local healLabel = Instance.new("TextLabel")
     healLabel.Size = UDim2.new(0, 100, 0, 30)
     healLabel.Position = UDim2.new(0.5, 0, 1, -50)
