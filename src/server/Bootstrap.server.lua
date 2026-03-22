@@ -1,14 +1,42 @@
 -- Bootstrap.server.lua
--- Runs first on the server (all other scripts yield on WaitForChild("Binds")).
--- Creates the Binds folder in ReplicatedStorage with every BindableEvent and
--- BindableFunction that the other server scripts depend on.
+-- Runs first on the server (all other scripts yield on WaitForChild).
+-- Creates GameEvents (RemoteEvents) and Binds (BindableEvents/Functions)
+-- in ReplicatedStorage before any other script needs them.
 
 local RS = game:GetService("ReplicatedStorage")
 
--- Safety: if something already created Binds (e.g. from an old Studio save),
--- don't create a duplicate.
+---------- GAME EVENTS (RemoteEvents for server↔client) ----------
+if not RS:FindFirstChild("GameEvents") then
+    local ge = Instance.new("Folder")
+    ge.Name = "GameEvents"
+
+    local remoteEvents = {
+        "RoundUpdate",
+        "PlayerDamaged",
+        "PlayerDied",
+        "BombLanded",
+        "LeaderboardUpdate",
+        "CoinUpdate",
+        "LavaContact",
+        "MissileLockOn",
+        "MissileUpdate",
+    }
+
+    for _, name in ipairs(remoteEvents) do
+        local re = Instance.new("RemoteEvent")
+        re.Name = name
+        re.Parent = ge
+    end
+
+    ge.Parent = RS
+    print("[Bootstrap] GameEvents created — " .. #remoteEvents .. " RemoteEvents")
+else
+    print("[Bootstrap] GameEvents already exists — skipping")
+end
+
+---------- BINDS (BindableEvents/Functions for server↔server) ----------
 if RS:FindFirstChild("Binds") then
-    print("[Bootstrap] Binds already exists — skipping creation")
+    print("[Bootstrap] Binds already exists — skipping")
     return
 end
 
