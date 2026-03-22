@@ -9,6 +9,9 @@ local velConn = nil
 local lastYVel = 0
 local killFeedLabels = {}
 
+-- Version counter for tint fade-back: incremented on each hit so old fades cancel
+local tintVersion = 0
+
 local M = {}
 
 function M.init(context)
@@ -17,38 +20,56 @@ end
 
 ---------- CHARACTER TINTING ----------
 
--- Smoothly fade all parts back to pre-damage original colors
-function M.resetCharTint(char, tweenTime)
+-- Immediately restore all parts to original colors (used for lobby reset / respawn)
+function M.resetCharTint(char)
     if not char then return end
-    tweenTime = tweenTime or 0.5
+    -- Cancel any in-progress fade by bumping version
+    tintVersion = tintVersion + 1
     for _, part in ipairs(char:GetDescendants()) do
         if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
             local origColor = ctx.charOrigColors[part]
             if origColor and part.Parent then
-                ctx.TweenService:Create(part,
-                    TweenInfo.new(tweenTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-                    {Color = origColor}):Play()
+                part.Color = origColor
             end
         end
     end
 end
 
--- Tint character and revert to TRUE original colors after duration.
--- Uses charOrigColors cache to prevent stacked hits from locking red.
-function M.tintCharacter(char, color, duration)
+-- Tint character red on hit, then automatically fade back to original colors.
+-- Uses a version counter so rapid hits reset the fade timer — character stays
+-- red while actively taking damage, then fades once hits stop.
+function M.tintCharacter(char, color, intensity)
     if not char then return end
     if not next(ctx.charOrigColors) then ctx.captureOrigColors(char) end
+
+    -- Bump version to cancel any in-progress fade-back
+    tintVersion = tintVersion + 1
+    local myVersion = tintVersion
+
+    -- Apply red tint immediately
     for _, part in ipairs(char:GetDescendants()) do
         if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
             part.Color = color
-            local origColor = ctx.charOrigColors[part] or color
-            task.delay(duration, function()
-                if part and part.Parent then
-                    ctx.TweenService:Create(part, TweenInfo.new(0.4), {Color = origColor}):Play()
-                end
-            end)
         end
     end
+
+    -- After a short delay, fade back to original colors over ~2 seconds
+    task.delay(0.3, function()
+        -- If a newer hit came in, this fade is stale — bail out
+        if tintVersion ~= myVersion then return end
+        if not char or not char.Parent then return end
+
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                local origColor = ctx.charOrigColors[part]
+                if origColor and part.Parent then
+                    ctx.TweenService:Create(part,
+                        TweenInfo.new(2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+                        {Color = origColor}):Play()
+                end
+            end
+        end
+    end)
 end
 
 -- Spark burst at character position
@@ -132,18 +153,6 @@ function M.showHealFeedback(healAmt)
     ctx.flash.BackgroundTransparency = 0.85
     ctx.TweenService:Create(ctx.flash, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
         {BackgroundTransparency = 1}):Play()
-
-    -- Character heal glow: flash green then fade to original
-    local char = ctx.player.Character
-    if char then
-        if not next(ctx.charOrigColors) then ctx.captureOrigColors(char) end
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-                part.Color = Color3.fromRGB(100, 255, 130)
-            end
-        end
-        task.delay(0.08, function() M.resetCharTint(char, 0.7) end)
-    end
 
     -- Floating "+HP" label
     local healLabel = Instance.new("TextLabel")
