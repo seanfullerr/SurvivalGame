@@ -1,6 +1,6 @@
--- Handles: coin earning per round, DataStore persistence, leaderstats display
+-- CoinManager v2: coin earning (rounds + pickups), DataStore, leaderstats
 -- Coins: 5 per round survived, 50 bonus for full survive (all 7 rounds)
--- Also handles map coin pickups via AwardCoinPickup BindableEvent
+-- Also handles coin pickup awards from CoinSpawner
 
 local Players = game:GetService("Players")
 local DataStoreService = game:GetService("DataStoreService")
@@ -119,22 +119,9 @@ game:BindToClose(function()
 end)
 
 ---------- LISTEN FOR ROUND EVENTS ----------
-GameEvents.RoundUpdate.OnServerEvent:Connect(function() end)  -- placeholder
-
--- Listen for round_survived to award coins
--- We hook into the existing BindableEvents
 local binds = RS:WaitForChild("Binds")
 
--- Award coins when round survived (server-side tracking)
-local roundCoinTracker = {}  -- userId → last round coins were awarded for
-
-GameEvents.RoundUpdate.OnServerEvent:Connect(function() end)
-
--- We need to listen to RoundUpdate on the server... but it's FireAllClients (server→client)
--- So we need a different approach: hook into the RoundManager's round completion
-
--- Use the AwardRoundCoins BindableEvent created by Bootstrap
--- (do NOT create a new one — Bootstrap owns all Binds instances)
+-- Award coins when round survived (via AwardRoundCoins BindableEvent)
 local coinBind = binds:WaitForChild("AwardRoundCoins")
 
 coinBind.Event:Connect(function(roundNumber, survivors, isVictory)
@@ -161,11 +148,13 @@ coinBind.Event:Connect(function(roundNumber, survivors, isVictory)
     end
 end)
 
----------- MAP COIN PICKUPS (from CoinSpawner) ----------
+---------- LISTEN FOR COIN PICKUPS ----------
+-- CoinSpawner fires this when a player collects a map coin
 local pickupBind = binds:WaitForChild("AwardCoinPickup")
+
 pickupBind.Event:Connect(function(player, amount, reason)
-    if not player or not player.Parent then return end
-    awardCoins(player, amount, reason or "Coin Pickup")
+    if not player or not player:IsA("Player") then return end
+    awardCoins(player, amount or 1, reason or "Coin Pickup")
 end)
 
-print("[CoinManager v2] Ready — coins, DataStore, leaderstats, map pickups!")
+print("[CoinManager v2] Ready — rounds, pickups, DataStore, leaderstats!")
