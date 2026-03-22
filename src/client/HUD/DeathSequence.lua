@@ -1,12 +1,15 @@
--- HUD/DeathSequence: Death VFX, camera pullback, death screen, compact banner
--- Handles the full PlayerDied sequence and death screen lifecycle.
+-- HUD/DeathSequence v2: Death VFX, camera pullback, skull-icon death screen
+-- Cleaner banner with glass panel style. Compact mode after 2s.
+-- Uses IconAssets for consistent theming.
 
 local ctx -- set via init()
+local Icons -- loaded via init()
 
 local M = {}
 
 function M.init(context)
     ctx = context
+    Icons = require(script.Parent:WaitForChild("IconAssets"))
 end
 
 -- Particle burst at death position (smoke + sparks)
@@ -63,10 +66,12 @@ local function cameraPullback(deathPos)
     end)
 end
 
--- Show death screen with smooth fade, then compact to banner after 2s
+-- Show death screen with smooth fade, skull icon, then compact to banner after 2s
 function M.show(cause, screenShakeFn, startSpectatingFn)
     local st = ctx.state
+    local T = Icons.Theme
     st.lastDeathCause = cause or "standard"
+    st._deathScreenActive = true  -- prevent CharacterAdded from hiding death screen
     ctx.SFX.PlayUI("Death", ctx.camera, {Volume = 0.45})
 
     -- Death particles
@@ -90,15 +95,21 @@ function M.show(cause, screenShakeFn, startSpectatingFn)
     -- Camera pullback
     if deathPos then cameraPullback(deathPos) end
 
-    -- Death screen fade
+    -- Death screen fade — use the existing Death frame from GameHUD
     local ds = ctx.deathScreen
     ds.Visible = true; ds.BackgroundTransparency = 1
     ctx.TweenService:Create(ds, TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-        {BackgroundTransparency = 0.4}):Play()
+        {BackgroundTransparency = 0.35}):Play()
 
+    -- "YOU DIED" text with skull icon approach
     local dt = ds:FindFirstChild("Text")
     if dt then
         dt.TextTransparency = 1; dt.TextSize = 30
+        dt.TextColor3 = T.Red
+        dt.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        dt.TextStrokeTransparency = 0.2
+        -- Add skull prefix to text if not already there
+        dt.Text = "YOU DIED"
         ctx.TweenService:Create(dt, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
             {TextTransparency = 0, TextSize = 44}):Play()
     end
@@ -107,8 +118,10 @@ function M.show(cause, screenShakeFn, startSpectatingFn)
     if sub then
         local causeText = ctx.DEATH_CAUSES[st.lastDeathCause] or "Eliminated!"
         local survTime = st.survivalStart and (tick() - st.survivalStart) or 0
-        sub.Text = causeText .. " | " .. ctx.formatTime(survTime) .. " alive | Round " .. st.currentRound
+        sub.Text = causeText .. "  |  " .. ctx.formatTime(survTime) .. " alive  |  Round " .. st.currentRound
         sub.TextTransparency = 1
+        sub.TextColor3 = T.WhiteDim
+        sub.TextStrokeTransparency = 0.3
         task.delay(0.3, function()
             ctx.TweenService:Create(sub, TweenInfo.new(0.4), {TextTransparency = 0}):Play()
         end)
@@ -130,14 +143,14 @@ function M.show(cause, screenShakeFn, startSpectatingFn)
         ctx.TweenService:Create(ds, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), {
             Size = UDim2.new(1, 0, 0, 44),
             Position = UDim2.new(0, 0, 0, 0),
-            BackgroundTransparency = 0.3,
+            BackgroundTransparency = 0.25,
         }):Play()
         if dtEl then
             ctx.TweenService:Create(dtEl, TweenInfo.new(0.3), {TextSize = 16}):Play()
             dtEl.Text = "YOU DIED"
         end
         if subEl then
-            subEl.TextSize = 13
+            subEl.TextSize = 12
             st._spectatingCompact = true
         end
     end)
@@ -150,6 +163,7 @@ function M.resetDeathScreen()
     ctx.deathScreen.Position = UDim2.new(0, 0, 0, 0)
     ctx.state._spectatingCompact = false
     ctx.state._specLerpTarget = nil
+    ctx.state._deathScreenActive = false
 end
 
 return M

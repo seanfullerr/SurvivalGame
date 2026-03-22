@@ -45,7 +45,7 @@ return {
     MAX_ROUNDS = 7,            -- game ends after 7 rounds (winners survive all)
     INTERMISSION = 6,
     MIN_PLAYERS = 1,           -- minimum players required to start (1 = solo/Studio-test friendly)
-    LOBBY_COUNTDOWN = 5,       -- lobby countdown seconds before game drops players in
+    LOBBY_COUNTDOWN = 12,      -- lobby countdown seconds (recap + rest + future shop time)
 
     -- BOMBS
     BOMB_INTERVAL_BASE = 1.2,
@@ -66,11 +66,11 @@ return {
     HOT_ZONE_SEQUENCE = {"NW", "NE", "SW", "SE", "CENTER"},
 
     -- COIN PICKUPS (procedural map coins)
-    COIN_COUNT = 20,               -- base number of coins per map
-    COIN_RESPAWN_TIME = 12,        -- seconds before a collected coin respawns
+    COIN_COUNT = 10,               -- base number of coins per map (reduced from 20 for cleaner visuals)
+    COIN_RESPAWN_TIME = 10,        -- seconds before a collected coin respawns
     COIN_RESPAWN_JITTER = 3,       -- ± random jitter on respawn (prevents wave patterns)
     COIN_PICKUP_VALUE = 1,         -- coins awarded per pickup
-    COIN_CLUSTER_CHANCE = 0.15,    -- 15% chance a spawn point becomes a 2-4 coin cluster
+    COIN_CLUSTER_CHANCE = 0.08,    -- 8% chance a spawn point becomes a 2-4 coin cluster (reduced from 15%)
 
     -- COIN STREAK / COMBO
     COIN_STREAK_TIMEOUT = 2.5,         -- seconds to collect next coin before streak resets

@@ -1,10 +1,12 @@
--- HUD/RoundHUD: Countdown, timer, milestones, round dots, timer urgency
--- Manages the top-bar round progression display and inter-round countdowns.
+-- HUD/RoundHUD v2: Countdown, timer, milestones, round dots, timer urgency
+-- Revamped with IconAssets theming — milestone banners get icon + glass panel.
 
 local ctx -- set via init()
+local Icons -- loaded via init()
 
 local timerConn = nil
 local _milestoneVersion = 0
+local _milestonePanel = nil  -- reusable milestone glass panel
 
 local milestones = {
     {round = 3, text = "WARMING UP!", color = Color3.fromRGB(130, 230, 255)},
@@ -16,6 +18,7 @@ local M = {}
 
 function M.init(context)
     ctx = context
+    Icons = require(script.Parent:WaitForChild("IconAssets"))
 end
 
 ---------- TIMER ----------
@@ -45,26 +48,96 @@ function M.stopTimer()
     ctx.timerDisplay.TextColor3 = Color3.fromRGB(255, 255, 255)
 end
 
----------- MILESTONES ----------
+---------- MILESTONES (revamped with glass panel) ----------
 function M.showMilestone(text, color)
     _milestoneVersion = _milestoneVersion + 1
     local thisVersion = _milestoneVersion
+    local T = Icons.Theme
+
+    -- Clean up old milestone panel
+    if _milestonePanel and _milestonePanel.Parent then
+        _milestonePanel:Destroy()
+    end
+
+    -- Create glass milestone banner
+    local banner = Icons.createGlassPanel({
+        Name = "MilestoneBanner",
+        Size = UDim2.new(0, 280, 0, 38),
+        Position = UDim2.new(0.5, 0, 0.25, 0),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BG = T.PanelBG,
+        Transparency = 0.2,
+        Stroke = true,
+        StrokeColor = color,
+        StrokeThickness = 1.5,
+        StrokeTransparency = 0.3,
+        CornerRadius = 8,
+        ZIndex = 15,
+        Parent = ctx.gui,
+    })
+    _milestonePanel = banner
+
+    -- Milestone text
+    local msText = Instance.new("TextLabel")
+    msText.Size = UDim2.new(1, 0, 1, 0)
+    msText.BackgroundTransparency = 1
+    msText.Font = Enum.Font.GothamBold
+    msText.TextSize = 18
+    msText.TextColor3 = color
+    msText.TextStrokeTransparency = 0.3
+    msText.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    msText.Text = text
+    msText.ZIndex = 16
+    msText.Parent = banner
+
+    -- Also update the old milestoneLabel for backward compat
     ctx.milestoneLabel.Text = text
     ctx.milestoneLabel.TextColor3 = color
-    ctx.milestoneLabel.TextTransparency = 1
-    ctx.milestoneLabel.Position = UDim2.new(0.5, 0, 0.28, 0)
-    ctx.TweenService:Create(ctx.milestoneLabel, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
-        {TextTransparency = 0, Position = UDim2.new(0.5, 0, 0.25, 0)}):Play()
+    ctx.milestoneLabel.TextTransparency = 1  -- hide old label, use banner instead
+
+    -- Animate in: slide up + fade
+    banner.Position = UDim2.new(0.5, 0, 0.28, 0)
+    banner.BackgroundTransparency = 1
+    msText.TextTransparency = 1
+    local bannerStroke = banner:FindFirstChildOfClass("UIStroke")
+    if bannerStroke then bannerStroke.Transparency = 1 end
+
+    ctx.TweenService:Create(banner, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+        Position = UDim2.new(0.5, 0, 0.25, 0),
+        BackgroundTransparency = 0.2,
+    }):Play()
+    ctx.TweenService:Create(msText, TweenInfo.new(0.35), { TextTransparency = 0 }):Play()
+    if bannerStroke then
+        ctx.TweenService:Create(bannerStroke, TweenInfo.new(0.35), { Transparency = 0.3 }):Play()
+    end
+
+    -- Auto-hide after 1.8s
     task.delay(1.8, function()
         if _milestoneVersion ~= thisVersion then return end
-        ctx.TweenService:Create(ctx.milestoneLabel, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
-            {TextTransparency = 1, Position = UDim2.new(0.5, 0, 0.22, 0)}):Play()
+        if banner and banner.Parent then
+            ctx.TweenService:Create(banner, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                BackgroundTransparency = 1,
+            }):Play()
+            ctx.TweenService:Create(msText, TweenInfo.new(0.4), { TextTransparency = 1 }):Play()
+            if bannerStroke then
+                ctx.TweenService:Create(bannerStroke, TweenInfo.new(0.4), { Transparency = 1 }):Play()
+            end
+            task.delay(0.6, function()
+                if banner and banner.Parent and _milestoneVersion == thisVersion then
+                    banner:Destroy()
+                end
+            end)
+        end
     end)
 end
 
 function M.clearMilestone()
     _milestoneVersion = _milestoneVersion + 1
     ctx.milestoneLabel.TextTransparency = 1
+    if _milestonePanel and _milestonePanel.Parent then
+        _milestonePanel:Destroy()
+        _milestonePanel = nil
+    end
 end
 
 ---------- COUNTDOWN ----------
@@ -74,6 +147,8 @@ function M.showCountdownNumber(num)
         or Color3.fromRGB(100, 255, 100)
     ctx.countdownLabel.Text = tostring(num)
     ctx.countdownLabel.TextColor3 = color
+    ctx.countdownLabel.TextStrokeTransparency = 0.2
+    ctx.countdownLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
     ctx.countdownLabel.TextTransparency = 0
     ctx.countdownLabel.TextSize = 60
     ctx.TweenService:Create(ctx.countdownLabel, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
@@ -87,16 +162,17 @@ end
 
 ---------- ROUND DOTS ----------
 function M.updateRoundDots(completedRound)
+    local T = Icons.Theme
     local roundDotsFrame = ctx.topBar:FindFirstChild("RoundDots")
     if not roundDotsFrame then return end
     for i = 1, ctx.MAX_ROUNDS do
         local dot = roundDotsFrame:FindFirstChild("Dot" .. i)
         if dot then
             if i < completedRound then
-                dot.BackgroundColor3 = Color3.fromRGB(80, 255, 120)
+                dot.BackgroundColor3 = T.Green
                 dot.BackgroundTransparency = 0.1
             elseif i == completedRound then
-                dot.BackgroundColor3 = Color3.fromRGB(255, 240, 100)
+                dot.BackgroundColor3 = T.Gold
                 dot.BackgroundTransparency = 0
                 ctx.TweenService:Create(dot, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
                     Size = UDim2.new(0, 18, 0, 8)
@@ -128,8 +204,9 @@ end
 
 ---------- TIMER URGENCY ----------
 function M.timerUrgency(secondsLeft)
+    local T = Icons.Theme
     if secondsLeft == 10 then
-        ctx.statusLabel.TextColor3 = Color3.fromRGB(255, 200, 60)
+        ctx.statusLabel.TextColor3 = T.Gold
         ctx.TweenService:Create(ctx.statusLabel, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
             TextSize = 32
         }):Play()
@@ -138,14 +215,14 @@ function M.timerUrgency(secondsLeft)
         end)
         ctx.SFX.PlayUI("Countdown", ctx.camera, {Volume = 0.1, PlaybackSpeed = 1.0})
     elseif secondsLeft <= 5 and secondsLeft > 0 then
-        ctx.statusLabel.TextColor3 = Color3.fromRGB(255, 60, 40)
-        ctx.timerDisplay.TextColor3 = Color3.fromRGB(255, 50, 30)
+        ctx.statusLabel.TextColor3 = T.Red
+        ctx.timerDisplay.TextColor3 = T.Red
         ctx.TweenService:Create(ctx.timerDisplay, TweenInfo.new(0.12, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
             TextSize = 36
         }):Play()
         task.delay(0.12, function()
             ctx.TweenService:Create(ctx.timerDisplay, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                TextSize = 28, TextColor3 = Color3.fromRGB(255, 180, 80)
+                TextSize = 28, TextColor3 = T.Orange
             }):Play()
         end)
         ctx.SFX.PlayUI("Countdown", ctx.camera, {
@@ -185,7 +262,6 @@ end
 
 ---------- ROUND-SPECIFIC MILESTONES ----------
 function M.checkRoundMilestones(roundNum, diff)
-    -- Round escalation callouts
     if roundNum >= 7 then
         M.showMilestone("FINAL STAND", Color3.fromRGB(200, 30, 30))
     elseif roundNum >= 6 then

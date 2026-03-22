@@ -1,4 +1,4 @@
--- CoinSpawner v2: Procedural coin spawning with collection, respawn, streaks, and polish
+-- CoinSpawner v4: Reduced density, top-floor bias, smaller coins, cleaner UX
 -- Spawns coins on valid map tiles (mid/high tiers, avoids lava)
 -- Server-authoritative .Touched collection with debounce + collected flag
 -- Rewards routed via CoinManager using AwardCoinPickup BindableEvent
@@ -9,10 +9,25 @@ local RS = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Debris = game:GetService("Debris")
 
+local ContentProvider = game:GetService("ContentProvider")
 local Config = require(RS:WaitForChild("GameConfig"))
 local MapManager = require(RS:WaitForChild("MapManager"))
 local GameEvents = RS:WaitForChild("GameEvents")
 local binds = RS:WaitForChild("Binds")
+
+-- Preload coin pickup sound so the first collection isn't silent
+local COIN_SOUND_ID = "rbxassetid://6895079853"
+task.spawn(function()
+    local preloadSound = Instance.new("Sound")
+    preloadSound.SoundId = COIN_SOUND_ID
+    preloadSound.Parent = game:GetService("SoundService")
+    pcall(function()
+        ContentProvider:PreloadAsync({preloadSound})
+    end)
+    task.wait(0.5)
+    preloadSound:Destroy()
+    print("[CoinSpawner] Sound asset preloaded")
+end)
 
 ---------- CONFIGURATION (from GameConfig, with fallbacks) ----------
 local COIN_COUNT = Config.COIN_COUNT or 20
@@ -68,15 +83,17 @@ end)
 
 ---------- SPAWN WEIGHTING ----------
 local function getSpawnWeight(tier, gx, gz)
-    local weight = 1.0
+    local weight = 0.6  -- mid tier: lower weight so coins favor top floor
     if tier == "high" then
-        weight = 1.8
+        weight = 3.5    -- strongly favor top floor for early-round visibility
     elseif tier == "low" then
-        weight = 0.4
+        weight = 0.2    -- rare spawns in valleys
     end
 
     local G, T = Config.GRID, Config.TILE
+    local nearLava = false
     for dx = -2, 2 do
+        if nearLava then break end
         for dz = -2, 2 do
             if not (dx == 0 and dz == 0) then
                 local nx, nz = gx + dx, gz + dz
@@ -86,13 +103,13 @@ local function getSpawnWeight(tier, gx, gz)
                     local isLava = MapManager.IsOverLava(wx, wz)
                     if isLava then
                         weight = weight * 1.4
-                        goto doneNearLava
+                        nearLava = true
+                        break
                     end
                 end
             end
         end
     end
-    ::doneNearLava::
 
     return weight
 end
@@ -160,36 +177,22 @@ local function createCoin(worldX, surfaceY, worldZ)
     local coin = Instance.new("Part")
     coin.Name = "PickupCoin"
     coin.Shape = Enum.PartType.Cylinder
-    coin.Size = Vector3.new(0.4, 2.2, 2.2)
-    coin.CFrame = CFrame.new(worldX, surfaceY + 2.5, worldZ) * CFrame.Angles(0, 0, math.rad(90))
+    coin.Size = Vector3.new(0.5, 2.8, 2.8)
+    -- Upright coin: rotate so flat face points sideways (visible from player POV)
+    coin.CFrame = CFrame.new(worldX, surfaceY + 3, worldZ)
     coin.Anchored = true
     coin.CanCollide = false
-    coin.Material = Enum.Material.Neon
+    coin.Material = Enum.Material.SmoothPlastic
     coin.Color = Color3.fromRGB(255, 210, 50)
 
     local light = Instance.new("PointLight")
     light.Color = Color3.fromRGB(255, 220, 80)
-    light.Brightness = 0.8
-    light.Range = 12
+    light.Brightness = 0.4
+    light.Range = 6
     light.Parent = coin
 
-    local bbg = Instance.new("BillboardGui")
-    bbg.Size = UDim2.new(0, 40, 0, 40)
-    bbg.StudsOffset = Vector3.new(0, 0, 0)
-    bbg.AlwaysOnTop = false
-    bbg.Parent = coin
-
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, 0, 1, 0)
-    label.BackgroundTransparency = 1
-    label.Text = "$"
-    label.TextColor3 = Color3.fromRGB(180, 140, 20)
-    label.TextScaled = true
-    label.Font = Enum.Font.GothamBold
-    label.Parent = bbg
-
     local sound = Instance.new("Sound")
-    sound.SoundId = "rbxassetid://6895079853"
+    sound.SoundId = COIN_SOUND_ID
     sound.Volume = 0.5
     sound.PlaybackSpeed = 0.9 + math.random() * 0.2
     sound.RollOffMaxDistance = 40
@@ -290,8 +293,6 @@ local function onCoinTouched(coin, hit)
 
     -- Hide coin
     coin.Transparency = 1
-    local bbg = coin:FindFirstChildOfClass("BillboardGui")
-    if bbg then bbg.Enabled = false end
     local light = coin:FindFirstChildOfClass("PointLight")
     if light then light.Enabled = false end
 
@@ -302,7 +303,6 @@ local function onCoinTouched(coin, hit)
         if not coin.Parent or not coinFolder or not coinFolder.Parent then return end
         data.collected = false
         coin.Transparency = 0
-        if bbg then bbg.Enabled = true end
         if light then light.Enabled = true end
         data.spinSpeed = 1.5 + math.random() * 1.0
         data.bobAmp = 0.3 + math.random() * 0.2
@@ -316,11 +316,11 @@ local function startAnimation()
     heartbeatConn = RunService.Heartbeat:Connect(function()
         local t = tick()
         for coin, data in pairs(activeCoins) do
-            if coin.Parent and not data.collected then
+            if coin.Parent and not data.collected and not data.dropping then
                 local angle = t * (data.spinSpeed or 2.0)
                 local bob = math.sin(t * 2 + (data.bobOffset or 0)) * (data.bobAmp or 0.35)
                 coin.CFrame = CFrame.new(data.worldX, data.baseY + bob, data.worldZ)
-                    * CFrame.Angles(0, angle, math.rad(90))
+                    * CFrame.Angles(0, angle, 0)
             end
         end
     end)
@@ -376,44 +376,92 @@ local function spawnCoins()
         end
     end
 
-    for _, pos in ipairs(spawnPoints) do
-        local coin = createCoin(pos.worldX, pos.surfaceY, pos.worldZ)
-        coin.Parent = coinFolder
-
-        activeCoins[coin] = {
-            collected = false,
-            gx = pos.gx,
-            gz = pos.gz,
-            worldX = pos.worldX,
-            worldZ = pos.worldZ,
-            baseY = pos.surfaceY + 2.5,
-            spinSpeed = 1.5 + math.random() * 1.0,
-            bobAmp = 0.3 + math.random() * 0.2,
-            bobOffset = math.random() * math.pi * 2,
-        }
-
-        coin.Touched:Connect(function(hit)
-            onCoinTouched(coin, hit)
-        end)
-    end
-
+    -- Start animation loop first (coins will join as they appear)
     startAnimation()
-    print("[CoinSpawner v2] Spawned " .. #spawnPoints .. " coins (" .. #baseSpawns .. " base + clusters) — streaks enabled")
+
+    -- Stagger coin spawns: each coin drops from ~5 studs above with a bounce
+    local TweenService = game:GetService("TweenService")
+    local STAGGER_DELAY = 3.5 / math.max(#spawnPoints, 1) -- spread evenly across 3.5s
+    local DROP_HEIGHT = 5 -- studs above target to start
+
+    task.spawn(function()
+        for i, pos in ipairs(spawnPoints) do
+            if not coinFolder or not coinFolder.Parent then return end -- round ended early
+
+            local targetY = pos.surfaceY + 3
+            local coin = createCoin(pos.worldX, pos.surfaceY + DROP_HEIGHT, pos.worldZ)
+            coin.Transparency = 0.6 -- slightly translucent while falling
+            coin.Parent = coinFolder
+
+            activeCoins[coin] = {
+                collected = false,
+                gx = pos.gx,
+                gz = pos.gz,
+                worldX = pos.worldX,
+                worldZ = pos.worldZ,
+                baseY = targetY,
+                spinSpeed = 1.5 + math.random() * 1.0,
+                bobAmp = 0.3 + math.random() * 0.2,
+                bobOffset = math.random() * math.pi * 2,
+                dropping = true, -- flag so heartbeat doesn't fight the tween
+            }
+
+            coin.Touched:Connect(function(hit)
+                onCoinTouched(coin, hit)
+            end)
+
+            -- Drop tween: fall down with a bounce ease + fade to full opacity
+            local dropTween = TweenService:Create(coin, TweenInfo.new(0.45, Enum.EasingStyle.Bounce, Enum.EasingDirection.Out), {
+                CFrame = CFrame.new(pos.worldX, targetY, pos.worldZ) * coin.CFrame.Rotation,
+                Transparency = 0,
+            })
+            dropTween:Play()
+            dropTween.Completed:Connect(function()
+                local data = activeCoins[coin]
+                if data then data.dropping = false end
+            end)
+
+            if i < #spawnPoints then
+                task.wait(STAGGER_DELAY)
+            end
+        end
+    end)
+
+    print("[CoinSpawner v4] Spawning " .. #spawnPoints .. " coins with drop animation (" .. #baseSpawns .. " base + clusters)")
 end
 
----------- WATCH FOR MAP REBUILDS ----------
+---------- CLEANUP HANDLER ----------
+local function cleanupCoins()
+    if heartbeatConn then heartbeatConn:Disconnect(); heartbeatConn = nil end
+    if coinFolder then coinFolder:Destroy(); coinFolder = nil end
+    activeCoins = {}
+    collectionDebounce = {}
+end
+
+---------- LISTEN FOR ROUND EVENTS ----------
+binds:WaitForChild("SpawnMapCoins").Event:Connect(function()
+    task.delay(1.0, function()
+        spawnCoins()
+    end)
+end)
+
+binds:WaitForChild("CleanupMapCoins").Event:Connect(function()
+    cleanupCoins()
+end)
+
+-- Fallback: also watch for Map folder if coins need spawning outside the round flow
 workspace.ChildAdded:Connect(function(child)
-    if child.Name == "Map" then
+    if child.Name == "Map" and not coinFolder then
         task.delay(1.0, function()
             spawnCoins()
         end)
     end
 end)
 
-if workspace:FindFirstChild("Map") then
+if workspace:FindFirstChild("Map") and not coinFolder then
     task.delay(1.0, function()
         spawnCoins()
     end)
 end
 
-print("[CoinSpawner v2] Ready — procedural coins with weighting, clusters, jitter, streaks")
+print("[CoinSpawner v4] Ready — reduced density, top-floor bias, cleaner UX")

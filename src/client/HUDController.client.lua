@@ -1,4 +1,4 @@
--- HUDController v23: Ultra-slim orchestrator
+-- HUDController v24: Ultra-slim orchestrator (UI revamp + bug fixes)
 -- Requires modular HUD/ files, wires up GameEvents, delegates all logic.
 -- Target: <12k chars for automated editing compatibility.
 
@@ -36,6 +36,34 @@ Leaderboard.init(ctx)
 -- Wire cross-module event connections
 MissileFX.connectEvents(RoundHUD.showMilestone, CameraFX.screenShake)
 LavaFB.connectEvents(DmgFB.tintCharacter, CameraFX.screenShake)
+
+---------- MENUS GUI REFERENCES (from UI Kit) ----------
+-- Find MenusGUI elements to toggle visibility during gameplay
+local menusGui = ctx.player:WaitForChild("PlayerGui"):FindFirstChild("MenusGUI")
+local cashFrame, interactablesFolder, menusFolder
+if menusGui then
+    local gameGUI = menusGui:FindFirstChild("GameGUI")
+    if gameGUI then
+        local centerBottom = gameGUI:FindFirstChild("CenterBottom")
+        if centerBottom then cashFrame = centerBottom:FindFirstChild("CashFrame") end
+        local interactables = gameGUI:FindFirstChild("Interactables")
+        if interactables then
+            interactablesFolder = interactables:FindFirstChild("Container") or interactables
+        end
+    end
+    menusFolder = menusGui:FindFirstChild("Menus")
+end
+
+local function setMenusVisible(visible)
+    if cashFrame then cashFrame.Visible = visible end
+    if interactablesFolder then interactablesFolder.Visible = visible end
+    -- Close any open menu panels when hiding
+    if not visible and menusFolder then
+        for _, panel in ipairs(menusFolder:GetChildren()) do
+            if panel:IsA("GuiObject") then panel.Visible = false end
+        end
+    end
+end
 
 ---------- LOCAL STATE ----------
 local st = ctx.state
@@ -102,7 +130,10 @@ ctx.player.CharacterAdded:Connect(function(char)
     Spectator.stop()
     ctx.camera.CameraType = Enum.CameraType.Custom
     ctx.camera.CameraSubject = char:FindFirstChild("Humanoid")
-    ctx.deathScreen.Visible = false
+    -- Don't hide death screen while it's actively showing (death sequence or game_over recap)
+    if not st._deathScreenActive and not st._gameOverRecapShown then
+        ctx.deathScreen.Visible = false
+    end
     if ctx.lowHPOverlay then ctx.lowHPOverlay.BackgroundTransparency = 1 end
     DmgFB.connectHPBar(char)
     DmgFB.connectMovementFeedback(char, CameraFX.screenShake)
@@ -114,6 +145,7 @@ end
 
 ---------- LOBBY RESET (shared helper) ----------
 local function lobbyReset()
+    DmgFB.resetCharTint(ctx.player.Character)
     MissileFX.cleanup()
     ctx.restoreLobbyLighting()
     RecapPanel.destroy()
@@ -121,7 +153,7 @@ local function lobbyReset()
     Spectator.stop()
     RoundHUD.stopTimer()
     ctx.TweenService:Create(ctx.camera, TweenInfo.new(0.5), {FieldOfView = 70}):Play()
-    st.totalDamageTaken = 0; st.nearMissCount = 0; st.lastDeathCause = nil
+    st.totalDamageTaken = 0; st.nearMissCount = 0; st.lastDeathCause = nil; st._gameOverRecapShown = false; st._deathScreenActive = false
     st._lastLavaHeavyVFX = nil
     ctx.statusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
     ctx.statusLabel.TextSize = 20
@@ -176,6 +208,7 @@ GE.RoundUpdate.OnClientEvent:Connect(function(phase, a, b, diff, survivalTime, a
 
     if phase == "lobby_wait" then
         lobbyReset()
+        setMenusVisible(true)  -- show coin total + side buttons in lobby
         st.hasPlayedFirstDrop = false; st.roundsThisSession = 0
         ctx.statusLabel.Text = a > 0 and ("NEXT GAME IN " .. a .. "s") or "WAITING..."
         if a > 0 and a <= 3 then
@@ -190,6 +223,7 @@ GE.RoundUpdate.OnClientEvent:Connect(function(phase, a, b, diff, survivalTime, a
         ctx.deathScreen.Visible = false
         ctx.statusLabel.Text = "GET READY!"
         ctx.infoLabel.Text = ""
+        setMenusVisible(false)  -- hide coin total + side buttons during gameplay
         RoundHUD.showCountdownNumber(a)
 
     elseif phase == "drop" then
@@ -295,6 +329,7 @@ GE.RoundUpdate.OnClientEvent:Connect(function(phase, a, b, diff, survivalTime, a
 
     elseif phase == "round_survived" then
         if ctx.lowHPOverlay then ctx.lowHPOverlay.BackgroundColor3 = Color3.fromRGB(30, 0, 0) end
+        DmgFB.resetCharTint(ctx.player.Character)
         RoundHUD.updateRoundDots(b)
         Celebrations.roundSurvived(b, a, RoundHUD.showMilestone, DmgFB.punchHPBar)
 
@@ -306,16 +341,52 @@ GE.RoundUpdate.OnClientEvent:Connect(function(phase, a, b, diff, survivalTime, a
     elseif phase == "game_over" then
         RoundHUD.stopTimer()
         RoundHUD.clearMilestone()
+        setMenusVisible(true)  -- show coin total during game over recap
         if a > st.bestRound then st.bestRound = a end
         ctx.statusLabel.Text = "GAME OVER!"
         ctx.infoLabel.Text = "Restarting " .. b .. "s"
-        ctx.SFX.PlayUI("GameOver", ctx.camera, {Volume = 0.4})
         ctx.hpBar.Visible = false
-        local survTime = st.survivalStart and (tick() - st.survivalStart) or 0
-        RecapPanel.create(a, survTime, st.lastDeathCause, a >= st.bestRound and a > 0)
         if ctx.lowHPOverlay then
             ctx.lowHPOverlay.BackgroundColor3 = Color3.fromRGB(180, 0, 0)
             ctx.TweenService:Create(ctx.lowHPOverlay, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
+        end
+
+        -- Only run recap logic on first game_over tick (highest countdown value)
+        -- game_over fires multiple times (countdown 5,4,3,2,1) — ignore subsequent fires
+        if not st._gameOverRecapShown then
+            st._gameOverRecapShown = true
+            ctx.SFX.PlayUI("GameOver", ctx.camera, {Volume = 0.4})
+
+            local survTime = st.survivalStart and (tick() - st.survivalStart) or 0
+            local recapRound, recapCause = a, st.lastDeathCause
+            local recapIsBest = a >= st.bestRound and a > 0
+
+            -- Let death screen stay visible for 2.5s so player can read cause-of-death,
+            -- then fade it out and show RecapPanel. Timeline with 5s countdown:
+            -- t=0: game_over fires, death screen visible
+            -- t=2.5: fade out death screen
+            -- t=3.0: RecapPanel slides in
+            -- t=5.0: return_to_lobby destroys RecapPanel
+            task.delay(2.5, function()
+                if ctx.deathScreen.Visible then
+                    ctx.TweenService:Create(ctx.deathScreen, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                        BackgroundTransparency = 1,
+                    }):Play()
+                    local dtEl = ctx.deathScreen:FindFirstChild("Text")
+                    local subEl = ctx.deathScreen:FindFirstChild("Sub")
+                    if dtEl then ctx.TweenService:Create(dtEl, TweenInfo.new(0.3), {TextTransparency = 1}):Play() end
+                    if subEl then ctx.TweenService:Create(subEl, TweenInfo.new(0.3), {TextTransparency = 1}):Play() end
+                    task.delay(0.5, function()
+                        ctx.deathScreen.Visible = false
+                        DeathSeq.resetDeathScreen()
+                    end)
+                end
+
+                -- Show RecapPanel after death screen fades
+                task.delay(0.5, function()
+                    RecapPanel.create(recapRound, survTime, recapCause, recapIsBest)
+                end)
+            end)
         end
     end
 end)
@@ -326,4 +397,4 @@ ctx.timerDisplay.Text = "0:00"
 ctx.infoLabel.Text = "Lobby"
 ctx.countdownLabel.TextTransparency = 1
 
-print("[HUDController v23] Modular architecture ready — 12 modules loaded")
+print("[HUDController v24] UI revamp loaded — 12 modules + IconAssets")

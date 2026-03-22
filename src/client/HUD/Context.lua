@@ -51,6 +51,7 @@ local state = {
     _lastLavaHeavyVFX = nil,
     _spectatingCompact = false,
     _specLerpTarget = nil,
+    _deathScreenActive = false,  -- true while death screen should stay visible
 }
 
 -- Cache of each body part's TRUE original color (before damage tinting)
@@ -58,7 +59,8 @@ local charOrigColors = {}
 
 local function captureOrigColors(char)
     if not char then return end
-    charOrigColors = {}
+    -- Clear in-place (don't reassign — other modules hold a reference to this table)
+    for k in pairs(charOrigColors) do charOrigColors[k] = nil end
     for _, part in ipairs(char:GetDescendants()) do
         if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
             charOrigColors[part] = part.Color

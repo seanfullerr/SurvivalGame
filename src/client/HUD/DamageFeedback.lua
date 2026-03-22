@@ -1,7 +1,9 @@
--- HUD/DamageFeedback: Hit VFX, character tinting, directional indicators,
+-- HUD/DamageFeedback v2: Hit VFX, character tinting, directional indicators,
 -- near miss popup, heal feedback, floating damage numbers, HP bar management.
+-- Revamped with IconAssets theming — heart icon on HP bar, improved near-miss.
 
 local ctx -- set via init()
+local Icons -- loaded via init()
 
 local hpConn = nil
 local moveConns = {}
@@ -9,21 +11,57 @@ local velConn = nil
 local lastYVel = 0
 local killFeedLabels = {}
 
--- Version counter for tint fade-back: incremented on each hit so old fades cancel
+-- Version counter for tint fade-back
 local tintVersion = 0
 
 local M = {}
 
 function M.init(context)
     ctx = context
+    Icons = require(script.Parent:WaitForChild("IconAssets"))
+    local T = Icons.Theme
+
+    -- Enhance the existing HP bar with a heart icon and glass styling
+    task.defer(function()
+        if ctx.hpBar then
+            -- Glass-ify the HP bar background
+            local existingCorner = ctx.hpBar:FindFirstChildOfClass("UICorner")
+            if not existingCorner then
+                local corner = Instance.new("UICorner")
+                corner.CornerRadius = UDim.new(0, 8)
+                corner.Parent = ctx.hpBar
+            end
+
+            -- Add subtle stroke
+            if not ctx.hpBar:FindFirstChildOfClass("UIStroke") then
+                local stroke = Instance.new("UIStroke")
+                stroke.Color = T.StrokeDefault
+                stroke.Thickness = 1
+                stroke.Transparency = 0.4
+                stroke.Parent = ctx.hpBar
+            end
+
+            -- Add heart icon left of HP bar
+            local heartIcon = ctx.hpBar:FindFirstChild("HeartIcon")
+            if not heartIcon then
+                heartIcon = Icons.createIcon(Icons.Heart, "♥", UDim2.new(0, 20, 0, 20), ctx.hpBar)
+                heartIcon.Name = "HeartIcon"
+                heartIcon.Position = UDim2.new(0, -26, 0.5, 0)
+                heartIcon.AnchorPoint = Vector2.new(0, 0.5)
+                heartIcon.ZIndex = (ctx.hpBar.ZIndex or 5) + 1
+                if heartIcon:IsA("TextLabel") then
+                    heartIcon.TextSize = 18
+                    heartIcon.TextColor3 = T.Red
+                end
+            end
+        end
+    end)
 end
 
 ---------- CHARACTER TINTING ----------
 
--- Immediately restore all parts to original colors (used for lobby reset / respawn)
 function M.resetCharTint(char)
     if not char then return end
-    -- Cancel any in-progress fade by bumping version
     tintVersion = tintVersion + 1
     for _, part in ipairs(char:GetDescendants()) do
         if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
@@ -35,30 +73,19 @@ function M.resetCharTint(char)
     end
 end
 
--- Tint character red on hit, then automatically fade back to original colors.
--- Uses a version counter so rapid hits reset the fade timer — character stays
--- red while actively taking damage, then fades once hits stop.
 function M.tintCharacter(char, color, intensity)
     if not char then return end
     if not next(ctx.charOrigColors) then ctx.captureOrigColors(char) end
-
-    -- Bump version to cancel any in-progress fade-back
     tintVersion = tintVersion + 1
     local myVersion = tintVersion
-
-    -- Apply red tint immediately
     for _, part in ipairs(char:GetDescendants()) do
         if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
             part.Color = color
         end
     end
-
-    -- After a short delay, fade back to original colors over ~2 seconds
     task.delay(0.3, function()
-        -- If a newer hit came in, this fade is stale — bail out
         if tintVersion ~= myVersion then return end
         if not char or not char.Parent then return end
-
         for _, part in ipairs(char:GetDescendants()) do
             if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
                 local origColor = ctx.charOrigColors[part]
@@ -72,7 +99,6 @@ function M.tintCharacter(char, color, intensity)
     end)
 end
 
--- Spark burst at character position
 function M.hitParticles(char, intensity)
     if not char then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
@@ -126,13 +152,17 @@ function M.showDirectionalNearMiss(explosionPos)
     end
 end
 
----------- NEAR MISS ----------
+---------- NEAR MISS (revamped with icon) ----------
 
 local nearMissTexts = {"CLOSE CALL!", "TOO CLOSE!", "WHEW!", "BARELY!"}
 
 function M.showNearMiss()
+    local T = Icons.Theme
     local label = ctx.nearMissLabel
     label.Text = nearMissTexts[math.random(#nearMissTexts)]
+    label.TextColor3 = T.Gold
+    label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    label.TextStrokeTransparency = 0.2
     label.TextTransparency = 0; label.TextSize = 20
     label.Position = UDim2.new(0.5, 0, 0.45, 0)
     ctx.TweenService:Create(label, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
@@ -148,26 +178,41 @@ end
 ---------- HEAL FEEDBACK ----------
 
 function M.showHealFeedback(healAmt)
-    -- Green screen flash
+    local T = Icons.Theme
     ctx.flash.BackgroundColor3 = Color3.fromRGB(80, 255, 80)
     ctx.flash.BackgroundTransparency = 0.85
     ctx.TweenService:Create(ctx.flash, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
         {BackgroundTransparency = 1}):Play()
 
-    -- Floating "+HP" label
     local healLabel = Instance.new("TextLabel")
     healLabel.Size = UDim2.new(0, 100, 0, 30)
     healLabel.Position = UDim2.new(0.5, 0, 1, -50)
     healLabel.AnchorPoint = Vector2.new(0.5, 1)
     healLabel.BackgroundTransparency = 1
     healLabel.Font = Enum.Font.GothamBold; healLabel.TextSize = 20
-    healLabel.TextColor3 = Color3.fromRGB(80, 255, 80)
+    healLabel.TextColor3 = T.Green
     healLabel.TextStrokeTransparency = 0.3
     healLabel.Text = "+" .. healAmt .. " HP"
     healLabel.ZIndex = 6; healLabel.Parent = ctx.gui
     ctx.TweenService:Create(healLabel, TweenInfo.new(1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
         {Position = UDim2.new(0.5, 0, 1, -110), TextTransparency = 1, TextStrokeTransparency = 1}):Play()
     ctx.Debris:AddItem(healLabel, 1.2)
+
+    -- Pulse the heart icon green
+    if ctx.hpBar then
+        local heartIcon = ctx.hpBar:FindFirstChild("HeartIcon")
+        if heartIcon and heartIcon:IsA("TextLabel") then
+            heartIcon.TextColor3 = T.Green
+            ctx.TweenService:Create(heartIcon, TweenInfo.new(0.6), {
+                TextColor3 = Icons.Theme.Red,
+            }):Play()
+        elseif heartIcon and heartIcon:IsA("ImageLabel") then
+            heartIcon.ImageColor3 = Color3.fromRGB(80, 255, 80)
+            ctx.TweenService:Create(heartIcon, TweenInfo.new(0.6), {
+                ImageColor3 = Color3.new(1, 1, 1),
+            }):Play()
+        end
+    end
 end
 
 ---------- FLOATING DAMAGE NUMBERS ----------
@@ -210,14 +255,29 @@ function M.updateHPBar()
     local char = ctx.player.Character; if not char then return end
     local hum = char:FindFirstChild("Humanoid"); if not hum then return end
     local hp = math.max(0, hum.Health); local maxHP = hum.MaxHealth; local pct = hp / maxHP
+    local T = Icons.Theme
+
     ctx.TweenService:Create(ctx.hpFill, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
         Size = UDim2.new(math.max(0.001, pct) * (1 - 6/320), 0, 1, -4),
-        BackgroundColor3 = pct > 0.5 and Color3.fromRGB(80, 220, 80)
-            or pct > 0.25 and Color3.fromRGB(255, 180, 40)
-            or Color3.fromRGB(255, 50, 30)
+        BackgroundColor3 = pct > 0.5 and T.Green
+            or pct > 0.25 and T.Orange
+            or T.Red
     }):Play()
     ctx.hpText.Text = math.floor(hp) .. " / " .. math.floor(maxHP)
     ctx.hpBar.Visible = (hp > 0)
+
+    -- Pulse heart icon red at low HP
+    if ctx.hpBar then
+        local heartIcon = ctx.hpBar:FindFirstChild("HeartIcon")
+        if heartIcon and pct <= 0.25 and pct > 0 then
+            if heartIcon:IsA("TextLabel") then
+                ctx.TweenService:Create(heartIcon, TweenInfo.new(0.4, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, 2, true), {
+                    TextColor3 = Color3.fromRGB(255, 0, 0),
+                }):Play()
+            end
+        end
+    end
+
     if pct <= 0.25 and pct > 0 then
         ctx.TweenService:Create(ctx.hpFill, TweenInfo.new(0.4, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, 2, true),
             {BackgroundColor3 = Color3.fromRGB(255, 0, 0)}):Play()
@@ -253,7 +313,6 @@ function M.connectMovementFeedback(char, screenShakeFn)
     local hrp = char:WaitForChild("HumanoidRootPart", 5)
     if not hum or not hrp then return end
 
-    -- Landing: camera shake for heavy impacts
     table.insert(moveConns, hum.StateChanged:Connect(function(_, newState)
         if newState == Enum.HumanoidStateType.Landed then
             local impact = math.abs(lastYVel)
@@ -262,7 +321,6 @@ function M.connectMovementFeedback(char, screenShakeFn)
                 screenShakeFn(heavyI * 0.5, 0.1)
             end
         end
-        -- Takeoff puff
         if newState == Enum.HumanoidStateType.Jumping then
             local att = Instance.new("Attachment")
             att.Position = Vector3.new(0, -2.5, 0); att.Parent = hrp
@@ -288,7 +346,6 @@ function M.connectMovementFeedback(char, screenShakeFn)
         end
     end))
 
-    -- Track Y velocity for impact calculation
     velConn = ctx.RunService.Heartbeat:Connect(function()
         if hrp and hrp.Parent then lastYVel = hrp.AssemblyLinearVelocity.Y end
     end)
@@ -303,9 +360,10 @@ function M.showLastSurvivor(showMilestoneFn)
     ctx.TweenService:Create(ctx.flash, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
 end
 
----------- KILL FEED ----------
+---------- KILL FEED (revamped with glass panels) ----------
 
 function M.showKillFeed(playerName, cause)
+    local T = Icons.Theme
     local causeText = ctx.DEATH_CAUSES[cause] or "was eliminated"
     local killColors = {
         standard = Color3.fromRGB(255, 170, 80),
@@ -317,21 +375,26 @@ function M.showKillFeed(playerName, cause)
         fall = Color3.fromRGB(180, 180, 200),
     }
     local killColor = killColors[cause] or Color3.fromRGB(255, 120, 120)
+
     local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(0, 260, 0, 22)
-    label.Position = UDim2.new(0, 14, 0.65, #killFeedLabels * 26)
-    label.BackgroundTransparency = 0.7; label.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    label.Size = UDim2.new(0, 270, 0, 24)
+    label.Position = UDim2.new(0, 14, 0.65, #killFeedLabels * 28)
+    label.BackgroundTransparency = 0.6
+    label.BackgroundColor3 = T.PanelBG
     label.Font = Enum.Font.GothamBold; label.TextSize = 11
     label.TextColor3 = killColor
     label.TextXAlignment = Enum.TextXAlignment.Left
-    label.TextStrokeTransparency = 0.6
+    label.TextStrokeTransparency = 0.5
+    label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
     label.Text = "  " .. playerName .. " " .. causeText:lower()
     label.TextTransparency = 1; label.ZIndex = 7; label.Parent = ctx.gui
     ctx.TweenService:Create(label, TweenInfo.new(0.25), {TextTransparency = 0}):Play()
     table.insert(killFeedLabels, label)
+
     local kfCorner = Instance.new("UICorner")
-    kfCorner.CornerRadius = UDim.new(0, 3)
+    kfCorner.CornerRadius = UDim.new(0, 5)
     kfCorner.Parent = label
+
     task.delay(6, function()
         ctx.TweenService:Create(label, TweenInfo.new(0.5), {TextTransparency = 1, BackgroundTransparency = 1}):Play()
         task.delay(0.6, function()

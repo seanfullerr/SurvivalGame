@@ -378,7 +378,8 @@ while true do
         survivalTime = math.floor(tick() - sessionStartTime)
 
         if allDead or #survivors == 0 then
-            for i = 2, 1, -1 do
+            -- Extended game-over countdown: gives time for recap panel + breathing room
+            for i = 5, 1, -1 do
                 GameEvents.RoundUpdate:FireAllClients("game_over", roundNumber, i, difficulty, survivalTime)
                 task.wait(1)
             end
@@ -394,7 +395,7 @@ while true do
             -- Award coins for surviving this round
             local coinBind = binds:FindFirstChild("AwardRoundCoins")
             if coinBind then coinBind:Fire(roundNumber, survivors, false) end
-            task.wait(1.5)
+            task.wait(2.5)  -- breathing room between rounds to collect coins / reposition
 
             -- WIN CONDITION: survived all rounds
             if roundNumber >= (Config.MAX_ROUNDS or 7) then
@@ -416,5 +417,5 @@ while true do
             end
         end
     end
-    task.wait(2)
+    task.wait(4)  -- extended buffer between games for rest/shop
 end

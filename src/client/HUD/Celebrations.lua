@@ -1,12 +1,15 @@
--- HUD/Celebrations: Round-survived and victory celebration VFX
+-- HUD/Celebrations v2: Round-survived and victory celebration VFX
 -- Confetti bursts, screen flashes, heal floats, victory text.
+-- Uses IconAssets theming for consistent colors.
 
 local ctx -- set via init()
+local Icons -- loaded via init()
 
 local M = {}
 
 function M.init(context)
     ctx = context
+    Icons = require(script.Parent:WaitForChild("IconAssets"))
 end
 
 -- Confetti particle burst on player
@@ -41,18 +44,20 @@ end
 -- Round survived celebration
 function M.roundSurvived(roundNum, aliveCount, showMilestoneFn, punchHPBarFn)
     local st = ctx.state
+    local T = Icons.Theme
+
     -- Personal best tracking
     if roundNum > st.bestRound then
         st.bestRound = roundNum
         if st.bestRound >= 2 then
             task.delay(0.8, function()
-                showMilestoneFn("NEW BEST! Round " .. st.bestRound, Color3.fromRGB(255, 220, 50))
+                showMilestoneFn("NEW BEST! Round " .. st.bestRound, T.Gold)
             end)
         end
     end
     st._lastLavaHeavyVFX = nil
 
-    -- 1) Chime — pitch rises each round
+    -- 1) Chime
     task.delay(0.2, function()
         ctx.SFX.PlayUI("RoundClear", ctx.camera, {
             Volume = 0.4,
@@ -62,24 +67,24 @@ function M.roundSurvived(roundNum, aliveCount, showMilestoneFn, punchHPBarFn)
 
     -- 2) Status text punch
     ctx.statusLabel.Text = "ROUND " .. roundNum .. " / " .. ctx.MAX_ROUNDS .. " CLEAR!"
-    ctx.statusLabel.TextColor3 = Color3.fromRGB(80, 255, 120)
+    ctx.statusLabel.TextColor3 = T.Green
     ctx.statusLabel.TextSize = 38
     ctx.TweenService:Create(ctx.statusLabel, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
         TextSize = 30
     }):Play()
     task.delay(0.6, function()
         ctx.TweenService:Create(ctx.statusLabel, TweenInfo.new(0.4), {
-            TextColor3 = Color3.fromRGB(255, 255, 255), TextSize = 28,
+            TextColor3 = T.TextPrimary, TextSize = 28,
         }):Play()
     end)
 
     -- 3) Info line
     local healPct = 30
     ctx.infoLabel.Text = aliveCount .. " alive | +" .. healPct .. " HP"
-    ctx.infoLabel.TextColor3 = Color3.fromRGB(120, 255, 140)
+    ctx.infoLabel.TextColor3 = T.Green
     task.delay(1.0, function()
         ctx.TweenService:Create(ctx.infoLabel, TweenInfo.new(0.3), {
-            TextColor3 = Color3.fromRGB(200, 200, 200),
+            TextColor3 = T.TextSecondary,
         }):Play()
     end)
 
@@ -95,7 +100,7 @@ function M.roundSurvived(roundNum, aliveCount, showMilestoneFn, punchHPBarFn)
     healFloat.Position = UDim2.new(0.5, -100, 0.42, 0)
     healFloat.BackgroundTransparency = 1
     healFloat.Font = Enum.Font.GothamBold; healFloat.TextSize = 34
-    healFloat.TextColor3 = Color3.fromRGB(80, 255, 120)
+    healFloat.TextColor3 = T.Green
     healFloat.TextStrokeTransparency = 0.5
     healFloat.TextStrokeColor3 = Color3.fromRGB(0, 60, 10)
     healFloat.Text = "+" .. healPct .. " HP"
@@ -111,7 +116,7 @@ function M.roundSurvived(roundNum, aliveCount, showMilestoneFn, punchHPBarFn)
         local fill = ctx.hpBar:FindFirstChild("Fill")
         if fill then
             local origColor = fill.BackgroundColor3
-            fill.BackgroundColor3 = Color3.fromRGB(80, 255, 120)
+            fill.BackgroundColor3 = T.Green
             ctx.TweenService:Create(fill, TweenInfo.new(0.5), {BackgroundColor3 = origColor}):Play()
         end
         punchHPBarFn()
@@ -124,6 +129,7 @@ end
 -- Victory celebration (all rounds survived)
 function M.victory(aliveCount, survivalTime)
     local st = ctx.state
+    local T = Icons.Theme
 
     -- All dots green
     local roundDotsFrame = ctx.topBar:FindFirstChild("RoundDots")
@@ -131,7 +137,7 @@ function M.victory(aliveCount, survivalTime)
         for i = 1, ctx.MAX_ROUNDS do
             local dot = roundDotsFrame:FindFirstChild("Dot" .. i)
             if dot then
-                dot.BackgroundColor3 = Color3.fromRGB(80, 255, 120)
+                dot.BackgroundColor3 = T.Green
                 dot.BackgroundTransparency = 0
             end
         end
@@ -139,7 +145,9 @@ function M.victory(aliveCount, survivalTime)
 
     -- Big "VICTORY!" text
     ctx.countdownLabel.Text = "VICTORY!"
-    ctx.countdownLabel.TextColor3 = Color3.fromRGB(255, 220, 50)
+    ctx.countdownLabel.TextColor3 = T.Gold
+    ctx.countdownLabel.TextStrokeTransparency = 0.2
+    ctx.countdownLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
     ctx.countdownLabel.TextTransparency = 0
     ctx.countdownLabel.TextSize = 50
     ctx.TweenService:Create(ctx.countdownLabel, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
@@ -151,7 +159,7 @@ function M.victory(aliveCount, survivalTime)
     task.delay(0.4, function() ctx.SFX.PlayUI("RoundClear", ctx.camera, {Volume = 0.5, PlaybackSpeed = 1.2}) end)
 
     ctx.statusLabel.Text = "ALL " .. ctx.MAX_ROUNDS .. " ROUNDS SURVIVED!"
-    ctx.statusLabel.TextColor3 = Color3.fromRGB(255, 220, 80)
+    ctx.statusLabel.TextColor3 = T.Gold
     ctx.infoLabel.Text = aliveCount .. " survivors | " .. ctx.formatTime(survivalTime or 0)
     ctx.infoLabel.TextColor3 = Color3.fromRGB(200, 255, 200)
 
