@@ -11,9 +11,13 @@ local binds = RS:WaitForChild("Binds")
 
 local roundNumber = 0
 local playerStats = {}
+local isFirstRun = true   -- used to apply a one-time client-ready grace period
 
+-- Wait until the server has enough players to start a round.
+-- Uses Config.MIN_PLAYERS (default 1) so solo/Studio testing works out of the box.
 local function waitForPlayers()
-    while #Players:GetPlayers() < 1 do task.wait(1) end
+    local min = Config.MIN_PLAYERS or 1
+    while #Players:GetPlayers() < min do task.wait(1) end
 end
 
 local function getDifficulty(round)
@@ -269,7 +273,23 @@ end
 while true do
     setLobbySpawns(true)
     waitForPlayers()
-    MapManager.BuildMap()
+
+    -- On the very first run, give client HUD modules a few extra seconds to finish
+    -- their WaitForChild calls and connect to RemoteEvent handlers.  Without this
+    -- grace period the first set of "lobby_wait" events can fire before the client
+    -- is listening, causing the screen to stay on the default "WAITING..." text.
+    if isFirstRun then
+        task.wait(3)
+        isFirstRun = false
+    end
+
+    -- Wrap map build in pcall so a runtime error here doesn't silently kill the loop.
+    local buildOk, buildErr = pcall(function() MapManager.BuildMap() end)
+    if not buildOk then
+        warn("[RoundManager] MapManager.BuildMap() failed: " .. tostring(buildErr))
+        task.wait(5)   -- brief cooldown before retrying
+        continue
+    end
     roundNumber = 0
 
     local modifier = MAP_MODIFIERS[math.random(#MAP_MODIFIERS)]
@@ -278,8 +298,9 @@ while true do
         GameEvents.RoundUpdate:FireAllClients("map_modifier", modifier)
     end
 
-        -- LOBBY WAIT (A3: countdown so players know when game starts)
-    local lobbyCountdown = 3
+        -- LOBBY WAIT: count down so players know when the next game starts.
+    -- Duration comes from Config.LOBBY_COUNTDOWN (default 5s).
+    local lobbyCountdown = Config.LOBBY_COUNTDOWN or 5
     for lcd = lobbyCountdown, 1, -1 do
         GameEvents.RoundUpdate:FireAllClients("lobby_wait", lcd, lobbyCountdown, #Players:GetPlayers())
         task.wait(1)
