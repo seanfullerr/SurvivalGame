@@ -20,6 +20,7 @@ if not RS:FindFirstChild("GameEvents") then
         "LavaContact",
         "MissileLockOn",
         "MissileUpdate",
+        "CoinStreak",
     }
 
     for _, name in ipairs(remoteEvents) do

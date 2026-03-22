@@ -71,4 +71,8 @@ return {
     COIN_RESPAWN_JITTER = 3,       -- ± random jitter on respawn (prevents wave patterns)
     COIN_PICKUP_VALUE = 1,         -- coins awarded per pickup
     COIN_CLUSTER_CHANCE = 0.15,    -- 15% chance a spawn point becomes a 2-4 coin cluster
+
+    -- COIN STREAK / COMBO
+    COIN_STREAK_TIMEOUT = 2.5,         -- seconds to collect next coin before streak resets
+    COIN_STREAK_MAX_MULTIPLIER = 5,    -- maximum streak multiplier cap
 }
